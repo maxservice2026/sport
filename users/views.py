@@ -15,7 +15,7 @@ from .utils import role_required, get_app_settings
 from clubs.models import Group, Sport, Child, Membership, TrainerGroup, SaleCharge, ReceivedPayment, ChildFinanceEntry, ClubDocument
 from clubs.payments import build_payment_counter, consume_matching_payment
 from clubs.pricing import normalize_start_month, payable_months_count, prorated_amount, month_start
-from users.models import User, EconomyExpense
+from users.models import User, EconomyExpense, EconomyRecurringExpense
 from clubs.forms import ChildEditForm
 from attendance.models import TrainerAttendance, Attendance
 
@@ -29,6 +29,60 @@ DAY_TO_WEEKDAY = {
     'So': 5,
     'Ne': 6,
 }
+
+
+def _add_months_safe(value, months):
+    month_idx = (value.month - 1) + months
+    year = value.year + (month_idx // 12)
+    month = (month_idx % 12) + 1
+    if month == 12:
+        next_month_start = date(year + 1, 1, 1)
+    else:
+        next_month_start = date(year, month + 1, 1)
+    month_end = next_month_start - timedelta(days=1)
+    day = min(value.day, month_end.day)
+    return date(year, month, day)
+
+
+def _next_recurrence_date(current_date, recurrence):
+    if recurrence == EconomyRecurringExpense.RECUR_WEEKLY:
+        return current_date + timedelta(days=7)
+    if recurrence == EconomyRecurringExpense.RECUR_14_DAYS:
+        return current_date + timedelta(days=14)
+    if recurrence == EconomyRecurringExpense.RECUR_MONTHLY:
+        return _add_months_safe(current_date, 1)
+    if recurrence == EconomyRecurringExpense.RECUR_QUARTERLY:
+        return _add_months_safe(current_date, 3)
+    if recurrence == EconomyRecurringExpense.RECUR_YEARLY:
+        return _add_months_safe(current_date, 12)
+    return current_date + timedelta(days=30)
+
+
+def _generate_due_recurring_expenses(until_date):
+    recurring = (
+        EconomyRecurringExpense.objects
+        .filter(active=True, next_run_date__lte=until_date)
+        .order_by('next_run_date', 'id')
+    )
+    generated_count = 0
+    for item in recurring:
+        run_date = item.next_run_date
+        while run_date and run_date <= until_date:
+            if not EconomyExpense.objects.filter(recurring_source=item, expense_date=run_date).exists():
+                EconomyExpense.objects.create(
+                    expense_date=run_date,
+                    title=item.title,
+                    amount_czk=item.amount_czk,
+                    note=item.note,
+                    recurring_source=item,
+                    created_by=item.created_by,
+                )
+                generated_count += 1
+            run_date = _next_recurrence_date(run_date, item.recurrence)
+        if run_date != item.next_run_date:
+            item.next_run_date = run_date
+            item.save(update_fields=['next_run_date'])
+    return generated_count
 
 
 def _run_payment_email_connection_test(cleaned_data):
@@ -352,6 +406,56 @@ def admin_economics(request):
             messages.success(request, 'Nákladová položka byla vytvořena.')
             return redirect(f"{reverse('admin_economics')}?period={period}")
 
+        if action == 'recurring_expense_add':
+            title = (request.POST.get('recurring_title') or '').strip()
+            amount_raw = (request.POST.get('recurring_amount_czk') or '').strip().replace(',', '.')
+            note = (request.POST.get('recurring_note') or '').strip()
+            start_date_raw = (request.POST.get('recurring_start_date') or '').strip()
+            recurrence = (request.POST.get('recurring_recurrence') or '').strip()
+
+            if not title:
+                messages.error(request, 'Vyplňte název opakovaného nákladu.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+            try:
+                amount = Decimal(amount_raw)
+            except Exception:
+                messages.error(request, 'Částka opakovaného nákladu musí být číslo.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+            if amount <= 0:
+                messages.error(request, 'Částka opakovaného nákladu musí být větší než 0.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+            try:
+                start_date = date.fromisoformat(start_date_raw) if start_date_raw else today
+            except ValueError:
+                messages.error(request, 'Neplatné datum začátku opakovaného nákladu.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+            allowed_recurrence = {value for value, _ in EconomyRecurringExpense.RECUR_CHOICES}
+            if recurrence not in allowed_recurrence:
+                messages.error(request, 'Vyberte platné opakování nákladu.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+
+            EconomyRecurringExpense.objects.create(
+                title=title,
+                amount_czk=amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+                note=note,
+                recurrence=recurrence,
+                start_date=start_date,
+                next_run_date=start_date,
+                active=True,
+                created_by=request.user,
+            )
+            _generate_due_recurring_expenses(today)
+            messages.success(request, 'Opakovaný náklad byl vytvořen.')
+            return redirect(f"{reverse('admin_economics')}?period={period}")
+
+        if action == 'recurring_toggle':
+            recurring_id = request.POST.get('recurring_id')
+            recurring_expense = get_object_or_404(EconomyRecurringExpense, id=recurring_id)
+            recurring_expense.active = not recurring_expense.active
+            recurring_expense.save(update_fields=['active'])
+            messages.success(request, 'Stav opakovaného nákladu byl změněn.')
+            return redirect(f"{reverse('admin_economics')}?period={period}")
+
         trainer_id = request.POST.get('trainer_id')
         trainer = get_object_or_404(User, id=trainer_id, role='trainer')
         payment_mode = request.POST.get('trainer_payment_mode')
@@ -377,6 +481,10 @@ def admin_economics(request):
         trainer.trainer_rate_per_record = rate
         trainer.save(update_fields=['trainer_payment_mode', 'trainer_tax_15_enabled', 'trainer_rate_per_record'])
         return redirect(f"{reverse('admin_economics')}?period={period}")
+
+    generated_now = _generate_due_recurring_expenses(today)
+    if generated_now:
+        messages.info(request, f'Automaticky doplněné opakované náklady: {generated_now}.')
 
     attendance_filter = Q(
         trainer_attendance_records__present=True,
@@ -452,8 +560,13 @@ def admin_economics(request):
     expenses = list(
         EconomyExpense.objects
         .filter(expense_date__gte=range_start, expense_date__lte=range_end)
-        .select_related('created_by')
+        .select_related('created_by', 'recurring_source')
         .order_by('-expense_date', '-id')
+    )
+    recurring_expenses = list(
+        EconomyRecurringExpense.objects
+        .select_related('created_by')
+        .order_by('title', 'id')
     )
     total_expenses = sum((expense.amount_czk for expense in expenses), Decimal('0.00'))
 
@@ -469,6 +582,8 @@ def admin_economics(request):
         'total_tax': total_tax,
         'total_net': total_net,
         'expenses': expenses,
+        'recurring_expenses': recurring_expenses,
+        'recurring_choices': EconomyRecurringExpense.RECUR_CHOICES,
         'total_expenses': total_expenses,
         'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
         'admin_wide_content': True,

@@ -57,6 +57,14 @@ class EconomyExpense(models.Model):
     title = models.CharField(max_length=160, verbose_name='Název nákladu')
     amount_czk = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Částka (Kč)')
     note = models.CharField(max_length=255, blank=True, verbose_name='Poznámka')
+    recurring_source = models.ForeignKey(
+        'users.EconomyRecurringExpense',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='generated_expenses',
+        verbose_name='Zdroj opakování',
+    )
     created_by = models.ForeignKey(
         'users.User',
         on_delete=models.SET_NULL,
@@ -74,6 +82,46 @@ class EconomyExpense(models.Model):
 
     def __str__(self):
         return f"{self.expense_date:%d.%m.%Y} - {self.title} ({self.amount_czk} Kč)"
+
+
+class EconomyRecurringExpense(models.Model):
+    RECUR_WEEKLY = 'weekly'
+    RECUR_14_DAYS = '14days'
+    RECUR_MONTHLY = 'monthly'
+    RECUR_QUARTERLY = 'quarterly'
+    RECUR_YEARLY = 'yearly'
+    RECUR_CHOICES = [
+        (RECUR_WEEKLY, 'Týdně'),
+        (RECUR_14_DAYS, '14 dní'),
+        (RECUR_MONTHLY, 'Měsíčně'),
+        (RECUR_QUARTERLY, 'Kvartálně'),
+        (RECUR_YEARLY, 'Ročně'),
+    ]
+
+    title = models.CharField(max_length=160, verbose_name='Název nákladu')
+    amount_czk = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Částka (Kč)')
+    note = models.CharField(max_length=255, blank=True, verbose_name='Poznámka')
+    recurrence = models.CharField(max_length=20, choices=RECUR_CHOICES, verbose_name='Opakování')
+    start_date = models.DateField(default=timezone.now, verbose_name='Začátek')
+    next_run_date = models.DateField(verbose_name='Další zaúčtování')
+    active = models.BooleanField(default=True, verbose_name='Aktivní')
+    created_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_recurring_expenses',
+        verbose_name='Vytvořil',
+    )
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Vytvořeno')
+
+    class Meta:
+        verbose_name = 'Opakovaný náklad'
+        verbose_name_plural = 'Opakované náklady'
+        ordering = ('title', 'id')
+
+    def __str__(self):
+        return f"{self.title} ({self.get_recurrence_display()})"
 
 
 class AppSettings(models.Model):

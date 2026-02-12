@@ -160,6 +160,79 @@
 
 <section class="page-panel" style="margin-top:12px;">
   <h3>Nákladové záznamy</h3>
+  <form method="post" style="display:grid;grid-template-columns:160px 1fr 160px 180px 1fr auto;gap:8px;align-items:end;margin-bottom:12px;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="recurring_expense_add">
+    <input type="hidden" name="period" value="{{ period }}">
+    <div>
+      <label>Začátek</label>
+      <input type="date" name="recurring_start_date" value="{{ range_end|date:'Y-m-d' }}">
+    </div>
+    <div>
+      <label>Název opakovaného nákladu</label>
+      <input type="text" name="recurring_title" placeholder="Např. pronájem haly" required>
+    </div>
+    <div>
+      <label>Částka (Kč)</label>
+      <input type="number" name="recurring_amount_czk" min="0" step="0.01" required>
+    </div>
+    <div>
+      <label>Opakování</label>
+      <select name="recurring_recurrence" required>
+        <option value="">- vyberte -</option>
+        {% for value, label in recurring_choices %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Poznámka</label>
+      <input type="text" name="recurring_note" placeholder="Volitelné">
+    </div>
+    <button class="btn secondary" type="submit">Přidat opakovaný</button>
+  </form>
+
+  {% if recurring_expenses %}
+    <div class="table-wrap" style="margin-bottom:12px;">
+      <table class="eco-table" style="min-width:880px;">
+        <thead>
+          <tr>
+            <th>Název</th>
+            <th>Částka</th>
+            <th>Opakování</th>
+            <th>Začátek</th>
+            <th>Další zaúčtování</th>
+            <th>Stav</th>
+            <th>Akce</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in recurring_expenses %}
+            <tr>
+              <td>{{ item.title }}</td>
+              <td>{{ item.amount_czk }}</td>
+              <td>{{ item.get_recurrence_display }}</td>
+              <td>{{ item.start_date|date:"d.m.Y" }}</td>
+              <td>{{ item.next_run_date|date:"d.m.Y" }}</td>
+              <td>{% if item.active %}Aktivní{% else %}Pozastaveno{% endif %}</td>
+              <td>
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="recurring_toggle">
+                  <input type="hidden" name="period" value="{{ period }}">
+                  <input type="hidden" name="recurring_id" value="{{ item.id }}">
+                  <button class="btn secondary" type="submit">
+                    {% if item.active %}Pozastavit{% else %}Obnovit{% endif %}
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   <form method="post" style="display:grid;grid-template-columns:160px 1fr 160px 1fr auto;gap:8px;align-items:end;margin-bottom:12px;">
     {% csrf_token %}
     <input type="hidden" name="action" value="expense_add">
@@ -188,6 +261,7 @@
       <thead>
         <tr>
           <th>Datum</th>
+          <th>Typ</th>
           <th>Název</th>
           <th>Částka</th>
           <th>Poznámka</th>
@@ -198,13 +272,14 @@
         {% for expense in expenses %}
           <tr>
             <td>{{ expense.expense_date|date:"d.m.Y" }}</td>
+            <td>{% if expense.recurring_source %}Opakovaný{% else %}Jednorázový{% endif %}</td>
             <td>{{ expense.title }}</td>
             <td>{{ expense.amount_czk }}</td>
             <td>{{ expense.note|default:"-" }}</td>
             <td>{% if expense.created_by %}{{ expense.created_by.email }}{% else %}-{% endif %}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="5" class="muted">V tomto období nejsou náklady.</td></tr>
+          <tr><td colspan="6" class="muted">V tomto období nejsou náklady.</td></tr>
         {% endfor %}
       </tbody>
     </table>
