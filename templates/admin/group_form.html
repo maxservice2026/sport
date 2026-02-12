@@ -58,6 +58,59 @@
     border-bottom: 1px solid #f2e5e5;
     vertical-align: middle;
   }
+  .inline-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+  }
+  .inline-check input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    flex: 0 0 auto;
+  }
+  .registration-state-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 4px;
+  }
+  .registration-state-inline label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #d7dde5;
+    border-radius: 8px;
+    padding: 5px 9px;
+    background: #fff;
+    font-weight: 600;
+  }
+  .registration-state-inline input[type="radio"] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+  }
+  .trainers-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 4px;
+  }
+  .trainers-inline label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #d7dde5;
+    border-radius: 8px;
+    padding: 5px 9px;
+    background: #fff;
+  }
+  .trainers-inline input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
 </style>
 
 <div class="card">
@@ -106,7 +159,9 @@
 
     <div class="form-row">
       <label>Stav veřejné registrace</label>
-      {{ form.registration_state }}
+      <div class="registration-state-inline">
+        {{ form.registration_state }}
+      </div>
       {{ form.registration_state.errors }}
     </div>
 
@@ -117,7 +172,7 @@
     </div>
 
     <div class="form-row">
-      <label style="display:flex;align-items:center;gap:8px;">
+      <label class="inline-check">
         {{ form.allow_combined_registration }}
         <span>Skupina se smí kombinovat s jinou skupinou při registraci</span>
       </label>
@@ -126,7 +181,9 @@
 
     <div class="form-row">
       <label>Trenéři</label>
-      {{ form.trainers }}
+      <div class="trainers-inline">
+        {{ form.trainers }}
+      </div>
       {{ form.trainers.errors }}
     </div>
 

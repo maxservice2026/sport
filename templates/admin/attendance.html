@@ -87,6 +87,33 @@
     </div>
   </form>
 
+  {% if group %}
+    <form method="post" style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:end;">
+      {% csrf_token %}
+      <input type="hidden" name="group" value="{{ group.id }}">
+      {% if session_date %}
+        <input type="hidden" name="date" value="{{ session_date|date:'Y-m-d' }}">
+      {% endif %}
+      <input type="hidden" name="action" value="add_training_day">
+      <div>
+        <label>Přidat trénink na datum</label>
+        <input type="date" name="add_date" value="{{ session_date|date:'Y-m-d' }}">
+      </div>
+      <button type="submit" class="btn">Přidat trénink</button>
+      {% if session_date %}
+        <button
+          type="submit"
+          class="btn danger"
+          name="action"
+          value="delete_training_day"
+          onclick="return confirm('Opravdu chcete smazat trénink {{ session_date|date:'d.m.Y' }}? Smaže se i docházka dětí i trenérů za tento den.');"
+        >
+          Smazat tento den
+        </button>
+      {% endif %}
+    </form>
+  {% endif %}
+
   {% if not group %}
     <p class="muted">Vyberte skupinu pro zobrazení docházky.</p>
   {% else %}

@@ -6,7 +6,7 @@ import ssl
 
 from django.contrib import messages
 from django.contrib.auth import login, logout
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 
@@ -42,6 +42,21 @@ def _add_months_safe(value, months):
     month_end = next_month_start - timedelta(days=1)
     day = min(value.day, month_end.day)
     return date(year, month, day)
+
+
+def _period_range(period, today=None):
+    today = today or date.today()
+    start_current_month = date(today.year, today.month, 1)
+    if period == 'current_month':
+        return start_current_month, today
+    if period == 'last_month':
+        last_month_end = start_current_month - timedelta(days=1)
+        return date(last_month_end.year, last_month_end.month, 1), last_month_end
+    return date(today.year - 1, 1, 1), date(today.year - 1, 12, 31)
+
+
+def _round_czk(value):
+    return Decimal(value or 0).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
 
 
 def _next_recurrence_date(current_date, recurrence):
@@ -360,16 +375,7 @@ def admin_economics(request):
         period = 'current_month'
 
     today = date.today()
-    start_current_month = date(today.year, today.month, 1)
-    if period == 'current_month':
-        range_start, range_end = start_current_month, today
-    elif period == 'last_month':
-        last_month_end = start_current_month - timedelta(days=1)
-        range_start = date(last_month_end.year, last_month_end.month, 1)
-        range_end = last_month_end
-    else:
-        range_start = date(today.year - 1, 1, 1)
-        range_end = date(today.year - 1, 12, 31)
+    range_start, range_end = _period_range(period, today=today)
 
     if request.method == 'POST':
         action = request.POST.get('action') or 'trainer_update'
@@ -400,6 +406,7 @@ def admin_economics(request):
                 expense_date=expense_date,
                 title=title,
                 amount_czk=amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+                expense_type=EconomyExpense.TYPE_GENERAL,
                 note=note,
                 created_by=request.user,
             )
@@ -537,24 +544,68 @@ def admin_economics(request):
     total_gross = Decimal('0.00')
     total_tax = Decimal('0.00')
     total_net = Decimal('0.00')
+    total_reimbursement = Decimal('0.00')
+    total_payout = Decimal('0.00')
+
+    service_sum_rows = (
+        EconomyExpense.objects
+        .filter(
+            trainer__in=trainers,
+            expense_type=EconomyExpense.TYPE_TRAINER_SERVICE,
+            expense_date__gte=range_start,
+            expense_date__lte=range_end,
+        )
+        .values('trainer_id')
+        .annotate(total=Sum('amount_czk'))
+    )
+    reimbursement_sum_rows = (
+        EconomyExpense.objects
+        .filter(
+            trainer__in=trainers,
+            expense_type=EconomyExpense.TYPE_TRAINER_REIMBURSEMENT,
+            expense_date__gte=range_start,
+            expense_date__lte=range_end,
+        )
+        .values('trainer_id')
+        .annotate(total=Sum('amount_czk'))
+    )
+    service_sum_map = {row['trainer_id']: row['total'] or Decimal('0.00') for row in service_sum_rows}
+    reimbursement_sum_map = {row['trainer_id']: row['total'] or Decimal('0.00') for row in reimbursement_sum_rows}
+
     for trainer in trainers:
-        gross = Decimal(trainer.trainer_rate_per_record) * Decimal(trainer.attendance_count)
+        base_gross = Decimal(trainer.trainer_rate_per_record) * Decimal(trainer.attendance_count)
+        service_gross = Decimal(service_sum_map.get(trainer.id, Decimal('0.00')))
+        gross = base_gross + service_gross
         if trainer.trainer_tax_15_enabled:
-            tax = (gross * Decimal('0.15')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            tax = _round_czk(gross * Decimal('0.15'))
         else:
             tax = Decimal('0.00')
+        reimbursement = Decimal(reimbursement_sum_map.get(trainer.id, Decimal('0.00')))
         net = gross - tax
+        payout_total = net + reimbursement
+
+        gross = _round_czk(gross)
+        net = _round_czk(net)
+        reimbursement = _round_czk(reimbursement)
+        payout_total = _round_czk(payout_total)
+
         total_records += trainer.attendance_count
         total_gross += gross
         total_tax += tax
         total_net += net
+        total_reimbursement += reimbursement
+        total_payout += payout_total
         rows.append({
             'trainer': trainer,
             'attendance_count': trainer.attendance_count,
             'attendance_extra_count': trainer.attendance_extra_count,
+            'base_gross': _round_czk(base_gross),
+            'service_gross': _round_czk(service_gross),
             'gross': gross,
             'tax': tax,
             'net': net,
+            'reimbursement': reimbursement,
+            'payout_total': payout_total,
             'records': records_map.get(trainer.id, []),
         })
     expenses = list(
@@ -568,7 +619,12 @@ def admin_economics(request):
         .select_related('created_by')
         .order_by('title', 'id')
     )
-    total_expenses = sum((expense.amount_czk for expense in expenses), Decimal('0.00'))
+    total_expenses = _round_czk(sum((expense.amount_czk for expense in expenses), Decimal('0.00')))
+    total_gross = _round_czk(total_gross)
+    total_tax = _round_czk(total_tax)
+    total_net = _round_czk(total_net)
+    total_reimbursement = _round_czk(total_reimbursement)
+    total_payout = _round_czk(total_payout)
 
     return render(request, 'admin/economics.html', {
         'rows': rows,
@@ -581,6 +637,8 @@ def admin_economics(request):
         'total_gross': total_gross,
         'total_tax': total_tax,
         'total_net': total_net,
+        'total_reimbursement': total_reimbursement,
+        'total_payout': total_payout,
         'expenses': expenses,
         'recurring_expenses': recurring_expenses,
         'recurring_choices': EconomyRecurringExpense.RECUR_CHOICES,
@@ -611,6 +669,142 @@ def admin_settings(request):
         'form': form,
         'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
         'admin_wide_content': True,
+    })
+
+
+@role_required('trainer')
+def trainer_economics(request):
+    period = request.GET.get('period') or request.POST.get('period') or 'current_month'
+    period_choices = [
+        ('current_month', 'Aktuální měsíc'),
+        ('last_month', 'Minulý měsíc'),
+        ('last_year', 'Minulý rok'),
+    ]
+    allowed_periods = {value for value, _ in period_choices}
+    if period not in allowed_periods:
+        period = 'current_month'
+
+    today = date.today()
+    range_start, range_end = _period_range(period, today=today)
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        if action == 'trainer_expense_add':
+            expense_date_raw = (request.POST.get('expense_date') or '').strip()
+            title = (request.POST.get('expense_title') or '').strip()
+            amount_raw = (request.POST.get('expense_amount_czk') or '').strip().replace(',', '.')
+            note = (request.POST.get('expense_note') or '').strip()
+            expense_type = (request.POST.get('expense_type') or '').strip()
+            allowed_types = {
+                EconomyExpense.TYPE_TRAINER_SERVICE,
+                EconomyExpense.TYPE_TRAINER_REIMBURSEMENT,
+            }
+            if expense_type not in allowed_types:
+                messages.error(request, 'Vyberte typ nákladu.')
+                return redirect(f"{reverse('trainer_economics')}?period={period}")
+            if not title:
+                messages.error(request, 'Vyplňte název položky.')
+                return redirect(f"{reverse('trainer_economics')}?period={period}")
+            try:
+                amount = Decimal(amount_raw)
+            except Exception:
+                messages.error(request, 'Částka musí být číslo.')
+                return redirect(f"{reverse('trainer_economics')}?period={period}")
+            if amount <= 0:
+                messages.error(request, 'Částka musí být větší než 0.')
+                return redirect(f"{reverse('trainer_economics')}?period={period}")
+            try:
+                expense_date = date.fromisoformat(expense_date_raw) if expense_date_raw else today
+            except ValueError:
+                messages.error(request, 'Neplatné datum.')
+                return redirect(f"{reverse('trainer_economics')}?period={period}")
+
+            EconomyExpense.objects.create(
+                expense_date=expense_date,
+                title=title,
+                amount_czk=amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+                expense_type=expense_type,
+                trainer=request.user,
+                note=note,
+                created_by=request.user,
+            )
+            messages.success(request, 'Položka byla uložena.')
+            return redirect(f"{reverse('trainer_economics')}?period={period}")
+
+    attendance_count = TrainerAttendance.objects.filter(
+        trainer=request.user,
+        present=True,
+        session__date__gte=range_start,
+        session__date__lte=range_end,
+    ).count()
+    attendance_records = list(
+        TrainerAttendance.objects
+        .filter(
+            trainer=request.user,
+            present=True,
+            session__date__gte=range_start,
+            session__date__lte=range_end,
+        )
+        .select_related('session__group', 'session__group__sport')
+        .order_by('-session__date', '-id')
+    )
+
+    service_total = (
+        EconomyExpense.objects
+        .filter(
+            trainer=request.user,
+            expense_type=EconomyExpense.TYPE_TRAINER_SERVICE,
+            expense_date__gte=range_start,
+            expense_date__lte=range_end,
+        )
+        .aggregate(total=Sum('amount_czk'))['total']
+        or Decimal('0.00')
+    )
+    reimbursement_total = (
+        EconomyExpense.objects
+        .filter(
+            trainer=request.user,
+            expense_type=EconomyExpense.TYPE_TRAINER_REIMBURSEMENT,
+            expense_date__gte=range_start,
+            expense_date__lte=range_end,
+        )
+        .aggregate(total=Sum('amount_czk'))['total']
+        or Decimal('0.00')
+    )
+    trainer_expenses = list(
+        EconomyExpense.objects
+        .filter(
+            trainer=request.user,
+            expense_type__in=[EconomyExpense.TYPE_TRAINER_SERVICE, EconomyExpense.TYPE_TRAINER_REIMBURSEMENT],
+            expense_date__gte=range_start,
+            expense_date__lte=range_end,
+        )
+        .order_by('-expense_date', '-id')
+    )
+
+    base_gross = Decimal(request.user.trainer_rate_per_record) * Decimal(attendance_count)
+    gross = base_gross + service_total
+    tax = _round_czk(gross * Decimal('0.15')) if request.user.trainer_tax_15_enabled else Decimal('0.00')
+    net = gross - tax
+    payout_total = net + reimbursement_total
+
+    return render(request, 'trainer/economics.html', {
+        'period': period,
+        'period_choices': period_choices,
+        'range_start': range_start,
+        'range_end': range_end,
+        'attendance_count': attendance_count,
+        'attendance_records': attendance_records,
+        'base_gross': _round_czk(base_gross),
+        'service_total': _round_czk(service_total),
+        'gross': _round_czk(gross),
+        'tax': _round_czk(tax),
+        'net': _round_czk(net),
+        'reimbursement_total': _round_czk(reimbursement_total),
+        'payout_total': _round_czk(payout_total),
+        'trainer_expenses': trainer_expenses,
+        'expense_type_service': EconomyExpense.TYPE_TRAINER_SERVICE,
+        'expense_type_reimbursement': EconomyExpense.TYPE_TRAINER_REIMBURSEMENT,
     })
 
 

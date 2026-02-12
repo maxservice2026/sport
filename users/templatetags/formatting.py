@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP
 
 from django import template
 
@@ -12,5 +13,5 @@ def czk_int(value):
         number = Decimal(value or 0)
     except (InvalidOperation, TypeError, ValueError):
         return '0'
-    return f"{int(number):,}".replace(',', ' ')
-
+    rounded = number.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+    return f"{int(rounded):,}".replace(',', ' ')

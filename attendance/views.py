@@ -116,8 +116,22 @@ def _training_dates(group, max_date=None):
     return dates
 
 
+def _session_dates(group, max_date=None):
+    scheduled_dates = set(_training_dates(group, max_date=max_date))
+    sessions_qs = TrainingSession.objects.filter(group=group)
+    if max_date:
+        sessions_qs = sessions_qs.filter(date__lte=max_date)
+    cancelled_dates = set(
+        sessions_qs.filter(is_cancelled=True).values_list('date', flat=True)
+    )
+    extra_dates = set(
+        sessions_qs.filter(is_extra=True, is_cancelled=False).values_list('date', flat=True)
+    )
+    return sorted((scheduled_dates - cancelled_dates) | extra_dates)
+
+
 def _select_session_date(group, requested, max_date=None):
-    dates = _training_dates(group, max_date=max_date)
+    dates = _session_dates(group, max_date=max_date)
     if not dates:
         return requested or date.today(), [], False, dates
 
@@ -189,7 +203,7 @@ def _attendance_context(request, group, requested_date, max_date=None, trainer_f
     can_mark = has_schedule
     session = None
     if can_mark:
-        session, _ = TrainingSession.objects.get_or_create(group=group, date=session_date)
+        session = TrainingSession.objects.filter(group=group, date=session_date, is_cancelled=False).first()
     else:
         if request:
             messages.warning(request, 'Skupina nemá nastavené období nebo tréninkové dny.')
@@ -212,6 +226,52 @@ def _attendance_context(request, group, requested_date, max_date=None, trainer_f
 
     trainer_tiles = _trainer_tiles(group, session, dates_up_to, only_trainer_id=trainer_filter_id)
     return session_date, session_options, can_mark, session, tiles, trainer_tiles
+
+
+def _ensure_active_session(group, session_date):
+    session, _ = TrainingSession.objects.get_or_create(
+        group=group,
+        date=session_date,
+        defaults={
+            'is_extra': not _is_training_day(group, session_date),
+            'is_cancelled': False,
+        },
+    )
+    updates = []
+    if session.is_cancelled:
+        session.is_cancelled = False
+        updates.append('is_cancelled')
+    should_be_extra = not _is_training_day(group, session_date)
+    if session.is_extra != should_be_extra:
+        session.is_extra = should_be_extra
+        updates.append('is_extra')
+    if updates:
+        session.save(update_fields=updates)
+    return session
+
+
+def _cancel_session_day(group, session_date):
+    session, _ = TrainingSession.objects.get_or_create(
+        group=group,
+        date=session_date,
+        defaults={
+            'is_extra': not _is_training_day(group, session_date),
+            'is_cancelled': True,
+        },
+    )
+    updates = []
+    if not session.is_cancelled:
+        session.is_cancelled = True
+        updates.append('is_cancelled')
+    should_be_extra = not _is_training_day(group, session_date)
+    if session.is_extra != should_be_extra:
+        session.is_extra = should_be_extra
+        updates.append('is_extra')
+    if updates:
+        session.save(update_fields=updates)
+    Attendance.objects.filter(session=session).delete()
+    TrainerAttendance.objects.filter(session=session).delete()
+    return session
 
 
 @role_required('trainer')
@@ -239,8 +299,10 @@ def trainer_attendance(request, group_id):
         messages.warning(request, 'Docházku nelze zadávat do budoucnosti.')
 
     if request.method == 'POST':
-        if not can_mark or not session:
+        if not can_mark:
             return redirect(request.path + f"?date={session_date}{extra_suffix}")
+        if not session:
+            session = _ensure_active_session(group, session_date)
         trainer_id = request.POST.get('trainer_id')
         if trainer_id:
             trainer_record, created = TrainerAttendance.objects.get_or_create(
@@ -304,8 +366,39 @@ def admin_attendance(request):
     )
 
     if request.method == 'POST':
-        if not can_mark or not session:
+        action = request.POST.get('action')
+        if action == 'add_training_day':
+            add_raw = (request.POST.get('add_date') or '').strip()
+            if not add_raw:
+                messages.error(request, 'Vyberte datum pro přidání tréninku.')
+                return redirect(request.path + f"?group={group.id}&date={session_date}")
+            try:
+                add_date = date.fromisoformat(add_raw)
+            except ValueError:
+                messages.error(request, 'Neplatné datum tréninku.')
+                return redirect(request.path + f"?group={group.id}&date={session_date}")
+            if add_date > date.today():
+                messages.error(request, 'Trénink nelze přidat do budoucnosti.')
+                return redirect(request.path + f"?group={group.id}&date={session_date}")
+            if not _is_within_range(group, add_date):
+                messages.error(request, 'Datum není v období této skupiny.')
+                return redirect(request.path + f"?group={group.id}&date={session_date}")
+            _ensure_active_session(group, add_date)
+            messages.success(request, f'Tréninkový den {add_date.strftime("%d.%m.%Y")} byl přidán.')
+            return redirect(request.path + f"?group={group.id}&date={add_date.isoformat()}")
+
+        if action == 'delete_training_day':
+            if not can_mark:
+                messages.error(request, 'Skupina nemá žádné dostupné datum pro smazání.')
+                return redirect(request.path + f"?group={group.id}")
+            _cancel_session_day(group, session_date)
+            messages.success(request, f'Tréninkový den {session_date.strftime("%d.%m.%Y")} byl smazán.')
+            return redirect(request.path + f"?group={group.id}")
+
+        if not can_mark:
             return redirect(request.path + f"?group={group.id}&date={session_date}")
+        if not session:
+            session = _ensure_active_session(group, session_date)
         trainer_id = request.POST.get('trainer_id')
         if trainer_id:
             trainer = get_object_or_404(group.trainers, id=trainer_id)

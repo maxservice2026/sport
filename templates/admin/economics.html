@@ -1,4 +1,5 @@
 {% extends 'admin/base_admin.html' %}
+{% load formatting %}
 
 {% block admin_content %}
 <style>
@@ -48,9 +49,12 @@
           <th>Typ</th>
           <th>Daň 15 %</th>
           <th>Kč / záznam</th>
+          <th>Služby do mzdy</th>
           <th>Hrubá</th>
           <th>Daň</th>
           <th>Výplata</th>
+          <th>Proplacení mimo mzdu</th>
+          <th>Celkem k proplacení</th>
         </tr>
       </thead>
       <tbody>
@@ -82,12 +86,15 @@
               </label>
             </td>
             <td><input type="number" name="trainer_rate_per_record" form="economics-{{ row.trainer.id }}" min="0" step="1" value="{{ row.trainer.trainer_rate_per_record }}"></td>
-            <td><strong>{{ row.gross }}</strong></td>
-            <td>{{ row.tax }}</td>
-            <td><strong>{{ row.net }}</strong></td>
+            <td>{{ row.service_gross|czk_int }} Kč</td>
+            <td><strong>{{ row.gross|czk_int }} Kč</strong></td>
+            <td>{{ row.tax|czk_int }} Kč</td>
+            <td><strong>{{ row.net|czk_int }} Kč</strong></td>
+            <td>{{ row.reimbursement|czk_int }} Kč</td>
+            <td><strong>{{ row.payout_total|czk_int }} Kč</strong></td>
           </tr>
         {% empty %}
-          <tr><td colspan="9" class="muted">Nejsou vytvořeni žádní trenéři.</td></tr>
+          <tr><td colspan="12" class="muted">Nejsou vytvořeni žádní trenéři.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -141,19 +148,27 @@
     <div class="l">Počet záznamů docházky</div>
   </article>
   <article class="summary-item">
-    <div class="k">{{ total_gross }}</div>
+    <div class="k">{{ total_gross|czk_int }} Kč</div>
     <div class="l">Součet hrubé výplaty (Kč)</div>
   </article>
   <article class="summary-item">
-    <div class="k">{{ total_tax }}</div>
+    <div class="k">{{ total_tax|czk_int }} Kč</div>
     <div class="l">Součet daně 15 % (Kč)</div>
   </article>
   <article class="summary-item">
-    <div class="k">{{ total_net }}</div>
+    <div class="k">{{ total_net|czk_int }} Kč</div>
     <div class="l">Součet výplaty po dani (Kč)</div>
   </article>
   <article class="summary-item">
-    <div class="k">{{ total_expenses }}</div>
+    <div class="k">{{ total_reimbursement|czk_int }} Kč</div>
+    <div class="l">Součet proplacení mimo mzdu (Kč)</div>
+  </article>
+  <article class="summary-item">
+    <div class="k">{{ total_payout|czk_int }} Kč</div>
+    <div class="l">Celkem k proplacení trenérům (Kč)</div>
+  </article>
+  <article class="summary-item">
+    <div class="k">{{ total_expenses|czk_int }} Kč</div>
     <div class="l">Náklady v období (Kč)</div>
   </article>
 </section>
@@ -210,7 +225,7 @@
           {% for item in recurring_expenses %}
             <tr>
               <td>{{ item.title }}</td>
-              <td>{{ item.amount_czk }}</td>
+              <td>{{ item.amount_czk|czk_int }} Kč</td>
               <td>{{ item.get_recurrence_display }}</td>
               <td>{{ item.start_date|date:"d.m.Y" }}</td>
               <td>{{ item.next_run_date|date:"d.m.Y" }}</td>
@@ -272,9 +287,9 @@
         {% for expense in expenses %}
           <tr>
             <td>{{ expense.expense_date|date:"d.m.Y" }}</td>
-            <td>{% if expense.recurring_source %}Opakovaný{% else %}Jednorázový{% endif %}</td>
+            <td>{{ expense.get_expense_type_display }}</td>
             <td>{{ expense.title }}</td>
-            <td>{{ expense.amount_czk }}</td>
+            <td>{{ expense.amount_czk|czk_int }} Kč</td>
             <td>{{ expense.note|default:"-" }}</td>
             <td>{% if expense.created_by %}{{ expense.created_by.email }}{% else %}-{% endif %}</td>
           </tr>

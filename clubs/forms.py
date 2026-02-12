@@ -42,9 +42,10 @@ class GroupAdminForm(forms.ModelForm):
         label='Dny tréninků',
     )
     trainers = forms.ModelMultipleChoiceField(
-        queryset=User.objects.filter(role='trainer'),
+        queryset=User.objects.filter(role='trainer').order_by('last_name', 'first_name', 'email'),
         required=False,
         label='Trenéři',
+        widget=forms.CheckboxSelectMultiple,
     )
 
     class Meta:
@@ -60,9 +61,13 @@ class GroupAdminForm(forms.ModelForm):
             'allow_combined_registration',
             'trainers',
         ]
+        widgets = {
+            'registration_state': forms.RadioSelect,
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['trainers'].queryset = User.objects.filter(role='trainer').order_by('last_name', 'first_name', 'email')
         if self.instance and self.instance.pk:
             self.fields['training_days'].initial = self.instance.training_days
             self.fields['trainers'].initial = self.instance.trainers.all()

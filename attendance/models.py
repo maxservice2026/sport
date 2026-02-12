@@ -7,6 +7,8 @@ from clubs.models import Group, Child
 class TrainingSession(models.Model):
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='sessions', verbose_name='Skupina')
     date = models.DateField(verbose_name='Datum')
+    is_extra = models.BooleanField(default=False, verbose_name='Mimo pravidelný rozvrh')
+    is_cancelled = models.BooleanField(default=False, verbose_name='Zrušený trénink')
     created_at = models.DateTimeField(default=timezone.now, verbose_name='Vytvořeno')
 
     class Meta:

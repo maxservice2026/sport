@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% load formatting %}
+
+{% block content %}
+<style>
+  .eco-table { width:100%; border-collapse:collapse; min-width:760px; font-size:14px; }
+  .eco-table th, .eco-table td { padding:8px; border-bottom:1px solid #eef1f4; text-align:left; vertical-align:middle; }
+  .summary-grid { margin-top:12px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+  .summary-item { background:#fff; border:1px solid #e8edf2; border-radius:12px; padding:10px; box-shadow:0 2px 10px rgba(0,0,0,0.06); }
+  .summary-item .k { font-size:24px; font-weight:800; line-height:1.1; }
+  .summary-item .l { color:#5b6470; margin-top:4px; font-size:13px; }
+  @media (max-width: 980px) {
+    .summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  }
+</style>
+
+<section class="page-hero">
+  <h2>Ekonomika trenéra</h2>
+  <p>Přehled jednotek a vašich nákladových položek.</p>
+</section>
+
+<section class="page-panel">
+  <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px;">
+    <div>
+      <label for="period">Období</label>
+      <select id="period" name="period">
+        {% for value, label in period_choices %}
+          <option value="{{ value }}" {% if period == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="muted">Rozsah: {{ range_start|date:"d.m.Y" }} - {{ range_end|date:"d.m.Y" }}</div>
+    <button class="btn secondary" type="submit">Použít</button>
+  </form>
+
+  <div class="summary-grid">
+    <article class="summary-item">
+      <div class="k">{{ attendance_count }}</div>
+      <div class="l">Placené jednotky</div>
+    </article>
+    <article class="summary-item">
+      <div class="k">{{ base_gross|czk_int }} Kč</div>
+      <div class="l">Základ za docházku</div>
+    </article>
+    <article class="summary-item">
+      <div class="k">{{ service_total|czk_int }} Kč</div>
+      <div class="l">Náklad trenérské služby (do mzdy)</div>
+    </article>
+    <article class="summary-item">
+      <div class="k">{{ reimbursement_total|czk_int }} Kč</div>
+      <div class="l">Náklady k proplacení (mimo mzdu)</div>
+    </article>
+    <article class="summary-item">
+      <div class="k">{{ gross|czk_int }} Kč</div>
+      <div class="l">Hrubá odměna</div>
+    </article>
+    <article class="summary-item">
+      <div class="k">{{ tax|czk_int }} Kč</div>
+      <div class="l">Daň</div>
+    </article>
+    <article class="summary-item">
+      <div class="k">{{ net|czk_int }} Kč</div>
+      <div class="l">Mzda po dani</div>
+    </article>
+    <article class="summary-item">
+      <div class="k">{{ payout_total|czk_int }} Kč</div>
+      <div class="l">Celkem k proplacení</div>
+    </article>
+  </div>
+</section>
+
+<section class="page-panel" style="margin-top:12px;">
+  <h3>Přidat náklad</h3>
+  <form method="post" style="display:grid;grid-template-columns:170px 1fr 190px 160px 1fr auto;gap:8px;align-items:end;margin-bottom:12px;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="trainer_expense_add">
+    <input type="hidden" name="period" value="{{ period }}">
+    <div>
+      <label>Datum</label>
+      <input type="date" name="expense_date" value="{{ range_end|date:'Y-m-d' }}">
+    </div>
+    <div>
+      <label>Název</label>
+      <input type="text" name="expense_title" placeholder="Např. doprava / dresy / turnaj" required>
+    </div>
+    <div>
+      <label>Typ</label>
+      <select name="expense_type" required>
+        <option value="{{ expense_type_service }}">Trenérská služba (do mzdy)</option>
+        <option value="{{ expense_type_reimbursement }}">Nákup vybavení (mimo mzdu)</option>
+      </select>
+    </div>
+    <div>
+      <label>Částka (Kč)</label>
+      <input type="number" name="expense_amount_czk" min="0" step="0.01" required>
+    </div>
+    <div>
+      <label>Poznámka</label>
+      <input type="text" name="expense_note" placeholder="Volitelné">
+    </div>
+    <button class="btn" type="submit">Uložit</button>
+  </form>
+
+  <div class="table-wrap">
+    <table class="eco-table">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Typ</th>
+          <th>Název</th>
+          <th>Částka</th>
+          <th>Poznámka</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in trainer_expenses %}
+          <tr>
+            <td>{{ item.expense_date|date:"d.m.Y" }}</td>
+            <td>{% if item.expense_type == expense_type_service %}Do mzdy{% else %}Mimo mzdu{% endif %}</td>
+            <td>{{ item.title }}</td>
+            <td>{{ item.amount_czk|czk_int }} Kč</td>
+            <td>{{ item.note|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="muted">V tomto období zatím nejsou žádné náklady.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="page-panel" style="margin-top:12px;">
+  <h3>Záznamy placených jednotek</h3>
+  <div class="table-wrap">
+    <table class="eco-table">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Skupina</th>
+          <th>Mimo přiřazení</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in attendance_records %}
+          <tr>
+            <td>{{ row.session.date|date:"d.m.Y" }}</td>
+            <td>{{ row.session.group.sport.name }} - {{ row.session.group.name }}</td>
+            <td>{% if row.extra_access %}ANO{% else %}NE{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="muted">V tomto období nejsou evidované jednotky.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -10,6 +10,7 @@ urlpatterns = [
     path('admin/economics/', views.admin_economics, name='admin_economics'),
     path('admin/settings/', views.admin_settings, name='admin_settings'),
     path('trainer/', views.trainer_dashboard, name='trainer_dashboard'),
+    path('trainer/economics/', views.trainer_economics, name='trainer_economics'),
     path('parent/', views.parent_dashboard, name='parent_dashboard'),
     path('parent/profile/', views.parent_profile, name='parent_profile'),
     path('parent/child/<int:child_id>/', views.parent_child_detail, name='parent_child_detail'),

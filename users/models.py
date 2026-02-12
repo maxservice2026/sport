@@ -53,9 +53,33 @@ class User(AbstractUser):
 
 
 class EconomyExpense(models.Model):
+    TYPE_GENERAL = 'general'
+    TYPE_TRAINER_SERVICE = 'trainer_service'
+    TYPE_TRAINER_REIMBURSEMENT = 'trainer_reimbursement'
+    TYPE_CHOICES = [
+        (TYPE_GENERAL, 'Náklad klubu'),
+        (TYPE_TRAINER_SERVICE, 'Trenérská služba (do mzdy)'),
+        (TYPE_TRAINER_REIMBURSEMENT, 'Proplacení nákupu (mimo mzdu)'),
+    ]
+
     expense_date = models.DateField(default=timezone.now, verbose_name='Datum')
     title = models.CharField(max_length=160, verbose_name='Název nákladu')
     amount_czk = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Částka (Kč)')
+    expense_type = models.CharField(
+        max_length=30,
+        choices=TYPE_CHOICES,
+        default=TYPE_GENERAL,
+        verbose_name='Typ nákladu',
+    )
+    trainer = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='trainer_expenses',
+        limit_choices_to={'role': 'trainer'},
+        verbose_name='Trenér',
+    )
     note = models.CharField(max_length=255, blank=True, verbose_name='Poznámka')
     recurring_source = models.ForeignKey(
         'users.EconomyRecurringExpense',

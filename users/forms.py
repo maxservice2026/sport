@@ -31,7 +31,7 @@ class TrainerCreateForm(forms.ModelForm):
     password1 = forms.CharField(label='Heslo', widget=forms.PasswordInput)
     password2 = forms.CharField(label='Heslo znovu', widget=forms.PasswordInput)
     groups = forms.ModelMultipleChoiceField(
-        queryset=Group.objects.all(),
+        queryset=Group.objects.select_related('sport').order_by('sport__name', 'name'),
         required=False,
         label='Skupiny',
     )
@@ -72,7 +72,7 @@ class TrainerUpdateForm(forms.ModelForm):
     new_password1 = forms.CharField(label='Nové heslo', widget=forms.PasswordInput, required=False)
     new_password2 = forms.CharField(label='Nové heslo znovu', widget=forms.PasswordInput, required=False)
     groups = forms.ModelMultipleChoiceField(
-        queryset=Group.objects.all(),
+        queryset=Group.objects.select_related('sport').order_by('sport__name', 'name'),
         required=False,
         label='Skupiny',
     )
