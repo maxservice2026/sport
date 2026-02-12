@@ -64,6 +64,13 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
         <input type="hidden" name="action" value="archive_groups" id="groups-action">
         <button class="btn secondary" type="submit" onclick="document.getElementById('groups-action').value='archive_groups'">Archivovat vybrané do CSV</button>
+        <button
+          class="btn danger"
+          type="submit"
+          onclick="document.getElementById('groups-action').value='delete_groups'; return confirm('Opravdu chcete smazat vybrané skupiny? Smažou se i jejich členství a docházka.');"
+        >
+          Smazat vybrané skupiny
+        </button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
         <div>

@@ -413,6 +413,22 @@ def admin_group_list(request):
                     ])
             return response
 
+        if action == 'delete_groups':
+            selected_ids = request.POST.getlist('selected_groups')
+            selected_groups = [g for g in groups if str(g.id) in selected_ids]
+            if not selected_groups:
+                messages.warning(request, 'Vyberte alespoň jednu skupinu ke smazání.')
+                return redirect('admin_groups')
+
+            deleted_count = 0
+            with transaction.atomic():
+                for group in selected_groups:
+                    group.delete()
+                    deleted_count += 1
+
+            messages.success(request, f'Smazáno skupin: {deleted_count}.')
+            return redirect('admin_groups')
+
         if action == 'clone_groups':
             selected_ids = request.POST.getlist('selected_groups')
             selected_groups = [g for g in groups if str(g.id) in selected_ids]
