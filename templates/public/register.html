@@ -25,8 +25,29 @@
     gap: 8px;
     align-items: end;
   }
+  .row-grid .btn {
+    white-space: nowrap;
+    height: 42px;
+  }
   @media (max-width: 900px) {
     .row-grid { grid-template-columns: 1fr; }
+    .row-grid .btn { width: 100%; }
+  }
+  body.mobile-preview .multi-row {
+    padding: 8px;
+  }
+  body.mobile-preview .row-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    align-items: stretch;
+  }
+  body.mobile-preview .row-grid label {
+    margin-bottom: 2px;
+  }
+  body.mobile-preview .row-grid .btn {
+    width: 100%;
+    white-space: normal;
+    line-height: 1.2;
   }
 </style>
 
@@ -80,23 +101,29 @@
     <div class="form-row">{{ form.child_phone }}</div>
     {{ form.child_first_name.errors }}{{ form.child_last_name.errors }}{{ form.child_phone.errors }}
 
-    <h3>Údaje o rodiči</h3>
-    <div class="form-row">{{ form.parent_first_name }}</div>
-    <div class="form-row">{{ form.parent_last_name }}</div>
-    <div class="form-row">{{ form.parent_email }}</div>
-    <div class="form-row">{{ form.parent_phone }}</div>
-    <div class="form-row">{{ form.parent_street }}</div>
-    <div class="form-row">{{ form.parent_city }}</div>
-    <div class="form-row">{{ form.parent_zip }}</div>
-    {{ form.parent_first_name.errors }}{{ form.parent_last_name.errors }}{{ form.parent_email.errors }}
-    {{ form.parent_phone.errors }}{{ form.parent_street.errors }}{{ form.parent_city.errors }}{{ form.parent_zip.errors }}
+    {% if not form.is_parent_registration %}
+      <h3>Údaje o rodiči</h3>
+      <div class="form-row">{{ form.parent_first_name }}</div>
+      <div class="form-row">{{ form.parent_last_name }}</div>
+      <div class="form-row">{{ form.parent_email }}</div>
+      <div class="form-row">{{ form.parent_phone }}</div>
+      <div class="form-row">{{ form.parent_street }}</div>
+      <div class="form-row">{{ form.parent_city }}</div>
+      <div class="form-row">{{ form.parent_zip }}</div>
+      {{ form.parent_first_name.errors }}{{ form.parent_last_name.errors }}{{ form.parent_email.errors }}
+      {{ form.parent_phone.errors }}{{ form.parent_street.errors }}{{ form.parent_city.errors }}{{ form.parent_zip.errors }}
 
-    <h3>Rodičovský přístup do SK Mníšecko</h3>
-    <div class="muted" style="margin-bottom:8px;">
-      Pokud už máte účet, zadejte stejný email a heslo.
-    </div>
-    <div class="form-row">{{ form.password1 }}{{ form.password1.errors }}</div>
-    <div class="form-row">{{ form.password2 }}{{ form.password2.errors }}</div>
+      <h3>Rodičovský přístup do SK Mníšecko</h3>
+      <div class="muted" style="margin-bottom:8px;">
+        Pokud už máte účet, zadejte stejný email a heslo.
+      </div>
+      <div class="form-row">{{ form.password1 }}{{ form.password1.errors }}</div>
+      <div class="form-row">{{ form.password2 }}{{ form.password2.errors }}</div>
+    {% else %}
+      <div class="card" style="margin:12px 0;background:#f7fbff;">
+        Registrujete další dítě pod účtem: <strong>{{ request.user.email }}</strong>.
+      </div>
+    {% endif %}
 
     <h3>Souhlasy</h3>
     <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">{{ form.consent_vop }}<span>{{ app_settings.consent_vop_text|default:"Souhlasím s VOP" }}</span></label>

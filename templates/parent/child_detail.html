@@ -70,7 +70,7 @@
     <p class="muted">Bez otevřených prodejních položek.</p>
   {% endif %}
 
-  <h3>Docházka dítěte</h3>
+  <h3 id="dochazka-dite">Docházka dítěte</h3>
   {% if attendance_rows %}
     <table class="charge-table">
       <thead>
@@ -115,9 +115,26 @@
         {% for entry in finance_entries %}
           <tr>
             <td>{{ entry.occurred_on|date:"d.m.Y" }}</td>
-            <td>{{ entry.title }}{% if entry.note %}<div class="muted">{{ entry.note }}</div>{% endif %}</td>
+            <td>
+              {% if entry.event_type == 'proforma' or entry.event_type == 'invoice' %}
+                Členství
+              {% else %}
+                {{ entry.title }}
+              {% endif %}
+              {% if entry.note %}<div class="muted">{{ entry.note }}</div>{% endif %}
+            </td>
             <td>{{ entry.amount_czk }} Kč</td>
-            <td>{{ entry.get_status_display }}</td>
+            <td>
+              {% if entry.direction == 'debit' and entry.status == 'open' %}
+                Čeká na úhradu
+              {% elif entry.status == 'closed' and entry.direction == 'debit' %}
+                Uhrazeno
+              {% elif entry.status == 'cancelled' %}
+                Storno
+              {% else %}
+                {{ entry.get_status_display }}
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
@@ -126,12 +143,21 @@
     <p class="muted">Bez ekonomických záznamů.</p>
   {% endif %}
 
-  <h3>QR platba</h3>
-  {% if due_total > 0 %}
-    <p class="muted">Celkem k úhradě: <strong>{{ due_total }} Kč</strong> | VS: <strong>{{ child.variable_symbol }}</strong></p>
+  <h3 id="qr-platba">QR platba</h3>
+  {% if qr_amount > 0 %}
+    {% if selected_entry %}
+      <p class="muted">Vybraná položka: <strong>{{ qr_title }}</strong> | Částka: <strong>{{ qr_amount }} Kč</strong> | VS: <strong>{{ child.variable_symbol }}</strong></p>
+      {% if selected_entry.event_type == 'proforma' %}
+        <p class="muted"><a href="/parent/proforma/{{ selected_entry.id }}/">Otevřít doklad</a></p>
+      {% endif %}
+      <p class="muted">Celkem otevřené platby: <strong>{{ due_total }} Kč</strong></p>
+    {% else %}
+      <p class="muted">Celkem k úhradě: <strong>{{ due_total }} Kč</strong> | VS: <strong>{{ child.variable_symbol }}</strong></p>
+    {% endif %}
+    <p class="muted">Účet: <strong>290625104 / 0300</strong></p>
     <img
       alt="QR platba"
-      src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={{ 'SPD*1.0*ACC:CZ210300000000290625104*CC:CZK*AM:'|add:due_total|add:'*X-VS:'|add:child.variable_symbol|urlencode }}"
+      src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={{ 'SPD*1.0*ACC:CZ210300000000290625104*CC:CZK*AM:'|add:qr_amount|add:'*X-VS:'|add:child.variable_symbol|add:'*MSG:'|add:qr_message|urlencode }}"
       style="max-width:240px;border:1px solid #d9e0e8;border-radius:8px;padding:4px;background:#fff;"
     >
   {% else %}

@@ -3,52 +3,6 @@
 {% block content %}
 <style>
   main { max-width: 1500px; }
-  .admin-layout {
-    display: grid;
-    grid-template-columns: 230px minmax(0, 1fr);
-    gap: 14px;
-    align-items: start;
-  }
-  .admin-sidebar {
-    background: #fff;
-    border-radius: 10px;
-    padding: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-    position: sticky;
-    top: 10px;
-  }
-  .admin-sidebar h3 {
-    margin: 6px 0 8px;
-    font-size: 16px;
-  }
-  .admin-quick-links {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-  .admin-sidebar .nav-link {
-    display: block;
-    padding: 8px 9px;
-    border-radius: 6px;
-    text-decoration: none;
-    color: #111;
-    font-size: 15px;
-  }
-  .admin-sidebar .nav-link:hover { background: #f2f4f7; }
-  .admin-group-jump {
-    margin-top: 10px;
-    border-top: 1px solid #eceff3;
-    padding-top: 10px;
-  }
-  .admin-group-jump label {
-    display: block;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
-  .admin-group-jump select {
-    width: 100%;
-    max-width: 100%;
-  }
   .admin-content { min-width: 0; }
   .admin-content.wide-content .card {
     width: 100%;
@@ -74,94 +28,13 @@
   .table-wrap { overflow-x: auto; }
 
   @media (max-width: 980px) {
-    .admin-layout {
-      grid-template-columns: 1fr;
-      gap: 10px;
-    }
-    .admin-sidebar {
-      position: static;
-      padding: 8px;
-    }
-    .admin-quick-links {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
-    }
-    .admin-sidebar .nav-link {
-      background: #f7f8fa;
-      border: 1px solid #eceff3;
-      padding: 9px;
-    }
     .admin-content { overflow-x: auto; }
   }
 
-  body.mobile-preview .admin-layout {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-  body.mobile-preview .admin-sidebar {
-    position: static;
-    padding: 8px;
-  }
-  body.mobile-preview .admin-quick-links {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-  }
-  body.mobile-preview .admin-sidebar .nav-link {
-    background: #f7f8fa;
-    border: 1px solid #eceff3;
-    padding: 9px;
-  }
+  body.mobile-preview .admin-content { overflow-x: auto; }
 </style>
 
-<div class="admin-layout">
-  <aside class="admin-sidebar">
-    <h3>Administrace</h3>
-    <div class="admin-quick-links">
-      <a class="nav-link" href="/admin/">Přehled</a>
-      <a class="nav-link" href="/admin/groups/">Skupiny</a>
-      <a class="nav-link" href="/admin/children/">Seznam členů</a>
-      <a class="nav-link" href="/admin/trainers/">Trenéři</a>
-      <a class="nav-link" href="/admin/attendance/">Docházka</a>
-      <a class="nav-link" href="/admin/economics/">Ekonomika</a>
-      <a class="nav-link" href="/admin/contributions/">Příspěvky</a>
-      <a class="nav-link" href="/admin/documents/">Dokumenty</a>
-      <a class="nav-link" href="/admin/settings/">Nastavení</a>
-      {% if can_use_django_admin %}
-        <a class="nav-link" href="/django-admin/">Django Admin</a>
-      {% endif %}
-    </div>
-
-    <div class="admin-group-jump">
-      <label for="group-jump-select">Skupiny</label>
-      <select id="group-jump-select">
-        <option value="">— otevřít skupinu —</option>
-        {% regroup groups_nav by sport as sport_groups %}
-        {% for sport in sport_groups %}
-          <optgroup label="{{ sport.grouper.name }}">
-            {% for group in sport.list %}
-              <option value="/admin/groups/{{ group.id }}/">{{ group.name }}</option>
-            {% endfor %}
-          </optgroup>
-        {% endfor %}
-      </select>
-      <div style="margin-top:8px;"><a class="btn" href="/admin/groups/new/">+ Nová skupina</a></div>
-    </div>
-  </aside>
-
-  <section class="admin-content{% if admin_wide_content %} wide-content{% endif %}">
-    {% block admin_content %}{% endblock %}
-  </section>
-</div>
-
-<script>
-  (function () {
-    const jump = document.getElementById('group-jump-select');
-    if (!jump) return;
-    jump.addEventListener('change', function () {
-      if (jump.value) {
-        window.location.href = jump.value;
-      }
-    });
-  })();
-</script>
+<section class="admin-content{% if admin_wide_content %} wide-content{% endif %}">
+  {% block admin_content %}{% endblock %}
+</section>
 {% endblock %}

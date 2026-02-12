@@ -11,7 +11,12 @@ urlpatterns = [
     path('admin/settings/', views.admin_settings, name='admin_settings'),
     path('trainer/', views.trainer_dashboard, name='trainer_dashboard'),
     path('trainer/economics/', views.trainer_economics, name='trainer_economics'),
+    path('reset-hesla/', views.UserPasswordResetView.as_view(), name='password_reset'),
+    path('reset-hesla/odeslano/', views.UserPasswordResetDoneView.as_view(), name='password_reset_done'),
+    path('reset-hesla/<uidb64>/<token>/', views.UserPasswordResetConfirmView.as_view(), name='password_reset_confirm'),
+    path('reset-hesla/hotovo/', views.UserPasswordResetCompleteView.as_view(), name='password_reset_complete'),
     path('parent/', views.parent_dashboard, name='parent_dashboard'),
     path('parent/profile/', views.parent_profile, name='parent_profile'),
     path('parent/child/<int:child_id>/', views.parent_child_detail, name='parent_child_detail'),
+    path('parent/proforma/<int:entry_id>/', views.parent_proforma_detail, name='parent_proforma_detail'),
 ]

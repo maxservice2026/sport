@@ -183,7 +183,8 @@ def _match_payment_to_open_proforma(payment, *, created_by=None):
 
 
 def public_register(request):
-    form = RegistrationForm(request.POST or None)
+    parent_user = request.user if request.user.is_authenticated and request.user.role == 'parent' else None
+    form = RegistrationForm(request.POST or None, parent_user=parent_user)
     if request.method == 'POST' and form.is_valid():
         parent, child, membership, created_parent, created_child, membership_created = form.save()
         ChildArchiveLog.objects.create(
@@ -1189,6 +1190,99 @@ def admin_children_export_xls(request):
 def admin_contributions(request):
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip()
+
+        if action == 'authorize_proforma_selected':
+            selected_ids = [item for item in request.POST.getlist('selected_membership_ids') if str(item).isdigit()]
+            memberships = list(
+                Membership.objects
+                .filter(id__in=selected_ids, active=True)
+                .select_related('group', 'group__sport', 'child', 'attendance_option')
+                .order_by('id')
+            )
+            if not memberships:
+                messages.warning(request, 'Nevybrali jste žádné děti pro autorizaci záloh.')
+                return redirect('admin_contributions')
+
+            open_membership_ids = set(
+                ChildFinanceEntry.objects
+                .filter(
+                    membership_id__in=[m.id for m in memberships],
+                    event_type=ChildFinanceEntry.TYPE_PROFORMA,
+                    status=ChildFinanceEntry.STATUS_OPEN,
+                )
+                .values_list('membership_id', flat=True)
+            )
+            created_count = 0
+            already_open_count = 0
+            skipped_count = 0
+            for membership in memberships:
+                if membership.id in open_membership_ids:
+                    already_open_count += 1
+                    continue
+                entry = _issue_membership_proforma(membership, created_by=request.user)
+                if entry:
+                    created_count += 1
+                else:
+                    skipped_count += 1
+            messages.success(
+                request,
+                (
+                    f'Autorizace vybraných dětí dokončena. '
+                    f'Vystaveno: {created_count}, '
+                    f'již existovalo: {already_open_count}, '
+                    f'bez částky: {skipped_count}.'
+                ),
+            )
+            return redirect('admin_contributions')
+
+        if action == 'authorize_proforma_group':
+            group_id = (request.POST.get('group_id') or '').strip()
+            if not group_id.isdigit():
+                messages.warning(request, 'Vyberte skupinu pro autorizaci záloh.')
+                return redirect('admin_contributions')
+            group = get_object_or_404(Group.objects.select_related('sport'), id=group_id)
+            memberships = list(
+                Membership.objects
+                .filter(group=group, active=True)
+                .select_related('group', 'group__sport', 'child', 'attendance_option')
+                .order_by('id')
+            )
+            if not memberships:
+                messages.warning(request, f'Skupina {group} nemá žádné aktivní členství.')
+                return redirect('admin_contributions')
+
+            open_membership_ids = set(
+                ChildFinanceEntry.objects
+                .filter(
+                    membership_id__in=[m.id for m in memberships],
+                    event_type=ChildFinanceEntry.TYPE_PROFORMA,
+                    status=ChildFinanceEntry.STATUS_OPEN,
+                )
+                .values_list('membership_id', flat=True)
+            )
+            created_count = 0
+            already_open_count = 0
+            skipped_count = 0
+            for membership in memberships:
+                if membership.id in open_membership_ids:
+                    already_open_count += 1
+                    continue
+                entry = _issue_membership_proforma(membership, created_by=request.user)
+                if entry:
+                    created_count += 1
+                else:
+                    skipped_count += 1
+            messages.success(
+                request,
+                (
+                    f'Autorizace skupiny {group} dokončena. '
+                    f'Vystaveno: {created_count}, '
+                    f'již existovalo: {already_open_count}, '
+                    f'bez částky: {skipped_count}.'
+                ),
+            )
+            return redirect('admin_contributions')
+
         membership = None
         membership_id = request.POST.get('membership_id')
         if membership_id:

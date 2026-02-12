@@ -10,190 +10,328 @@
     box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
     margin-bottom: 10px;
   }
-  .child-head .meta {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    color: #546172;
-    font-size: 14px;
+  .child-head h2 {
+    margin: 0 0 8px;
   }
+  .child-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+  }
+  .child-meta-item {
+    background: #f8fbff;
+    border: 1px solid #e3ebf5;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #425064;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  .child-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .child-stack {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+  .child-card {
+    background: #fff;
+    border: 1px solid #e8edf2;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
+  }
+  .child-card h3 {
+    margin: 0 0 10px;
+  }
+
   .simple-table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 920px;
+    min-width: 760px;
+    font-size: 15px;
   }
   .simple-table th,
   .simple-table td {
     text-align: left;
-    padding: 7px 8px;
+    padding: 6px 8px;
     border-bottom: 1px solid #eef1f4;
     vertical-align: top;
   }
-  .muted-small { color: #6a7685; font-size: 13px; }
+  .muted-small {
+    color: #6a7685;
+    font-size: 13px;
+  }
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .membership-date-form {
+    display: inline-block;
+  }
+  .membership-date-input {
+    width: 150px;
+    min-width: 150px;
+  }
+  .membership-status-active {
+    color: #188b4a;
+    font-weight: 700;
+  }
+  .membership-end-actions {
+    display: grid;
+    gap: 6px;
+    min-width: 210px;
+  }
+  .membership-refund-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .membership-refund-row input[type='number'] {
+    width: 96px;
+    min-width: 96px;
+  }
+
+  .inline-grid {
+    display: grid;
+    gap: 8px;
+    align-items: end;
+  }
+  .membership-add-grid {
+    grid-template-columns: minmax(150px, 1fr) minmax(170px, 230px) auto;
+  }
+  .sale-add-grid {
+    grid-template-columns: minmax(170px, 1.5fr) 130px minmax(140px, 1fr) auto;
+  }
+  .inline-grid input,
+  .inline-grid select {
+    width: 100%;
+    margin: 0;
+  }
+
+  .right-form .form-row {
+    display: grid;
+    grid-template-columns: 130px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .right-form label {
+    margin: 0;
+    font-size: 14px;
+  }
+  .right-form input,
+  .right-form select,
+  .right-form textarea {
+    width: 100%;
+    margin: 0;
+  }
+
+  @media (max-width: 1180px) {
+    .child-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 820px) {
+    .membership-add-grid,
+    .sale-add-grid {
+      grid-template-columns: 1fr;
+    }
+    .right-form .form-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+    .simple-table {
+      min-width: 700px;
+    }
+  }
 </style>
 
 <section class="child-head">
-  <h2 style="margin:0 0 6px;">{{ child.first_name }} {{ child.last_name }}</h2>
-  <div class="meta">
-    <span><strong>Unikátní ID:</strong> {{ child.variable_symbol }}</span>
-    <span><strong>Telefon rodiče:</strong> {{ child.parent.phone|default:"-" }}</span>
-    <span><strong>Rodič:</strong> {{ child.parent.first_name }} {{ child.parent.last_name }} ({{ child.parent.email }})</span>
-    <span><strong>Účastní se skupin:</strong>
+  <h2>{{ child.first_name }} {{ child.last_name }}</h2>
+  <div class="child-meta-grid">
+    <div class="child-meta-item"><strong>Unikátní ID:</strong> {{ child.variable_symbol }}</div>
+    <div class="child-meta-item"><strong>Telefon rodiče:</strong> {{ child.parent.phone|default:"-" }}</div>
+    <div class="child-meta-item"><strong>Rodič:</strong> {{ child.parent.first_name }} {{ child.parent.last_name }} ({{ child.parent.email }})</div>
+    <div class="child-meta-item">
+      <strong>Účastní se skupin:</strong>
       {% for membership in memberships %}
         {% if membership.active %}{{ membership.group.name }}{% if not forloop.last %}, {% endif %}{% endif %}
       {% empty %}
         -
       {% endfor %}
-    </span>
+    </div>
   </div>
 </section>
 
-<section class="page-panel">
-  <h3>Členství ve skupinách</h3>
-  <div class="table-wrap">
-    <table class="simple-table">
-      <thead>
-        <tr>
-          <th>Skupina</th>
-          <th>Varianta</th>
-          <th>Zařazení od</th>
-          <th>Stav</th>
-          <th>Ukončení</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for membership in memberships %}
-          <tr>
-            <td>{{ membership.group.sport.name }} - {{ membership.group.name }}</td>
-            <td>{% if membership.attendance_option %}{{ membership.attendance_option.name }}{% else %}-{% endif %}</td>
-            <td>
-              <form id="membership-date-{{ membership.id }}" method="post">
-                {% csrf_token %}
-                <input type="hidden" name="membership_id" value="{{ membership.id }}">
-                <input type="hidden" name="update_membership_date" value="1">
-                <input
-                  type="date"
-                  name="registered_at_date"
-                  value="{{ membership.registered_at|date:'Y-m-d' }}"
-                  {% if not membership.active %}disabled{% endif %}
-                >
-              </form>
-            </td>
-            <td>
-              {% if membership.active %}
-                <span style="color:#188b4a;font-weight:700;">Aktivní</span>
-              {% else %}
-                <span class="muted-small">Ukončeno</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if membership.active %}
-                <form method="post" style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;">
-                  {% csrf_token %}
-                  <input type="hidden" name="membership_id" value="{{ membership.id }}">
-                  <input type="hidden" name="end_membership" value="1">
-                  <input type="hidden" name="end_mode" value="without_refund">
-                  <button class="btn secondary" style="padding:5px 10px;" type="submit">Bez vratky</button>
-                </form>
-                <form method="post" style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;margin-top:6px;">
-                  {% csrf_token %}
-                  <input type="hidden" name="membership_id" value="{{ membership.id }}">
-                  <input type="hidden" name="end_membership" value="1">
-                  <input type="hidden" name="end_mode" value="with_refund">
-                  <input type="number" name="refund_amount" step="0.01" min="0" placeholder="Vratka Kč" style="max-width:120px;">
-                  <button class="btn" style="padding:5px 10px;" type="submit">S vratkou</button>
-                </form>
-              {% else %}
-                <span class="muted-small">Členství ukončeno</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="5" class="muted-small">Dítě zatím není přiřazeno do žádné skupiny.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h3 style="margin-top:12px;">Přidat do jiné skupiny</h3>
-  <form method="post" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
-    {% csrf_token %}
-    <div>
-      <label>Skupina</label>
-      {{ membership_form.group }}
-      {{ membership_form.group.errors }}
-    </div>
-    <div>
-      <label>Docházková varianta</label>
-      {{ membership_form.attendance_option }}
-      {{ membership_form.attendance_option.errors }}
-    </div>
-    <button class="btn" type="submit" name="add_membership" value="1">Přidat</button>
-  </form>
-
-  <h3 style="margin-top:14px;">Prodejní položky</h3>
-  <form method="post" style="display:grid;grid-template-columns:1fr 140px 1fr auto;gap:8px;align-items:end;">
-    {% csrf_token %}
-    <input type="hidden" name="add_sale_charge" value="1">
-    <div>
-      <label>Položka</label>
-      <input type="text" name="sale_title" placeholder="Např. sportovní dres" required>
-    </div>
-    <div>
-      <label>Částka (Kč)</label>
-      <input type="number" name="sale_amount" step="0.01" min="0" required>
-    </div>
-    <div>
-      <label>Poznámka</label>
-      <input type="text" name="sale_note" placeholder="Volitelné">
-    </div>
-    <button class="btn" type="submit">Přidat</button>
-  </form>
-  <div class="table-wrap" style="margin-top:8px;">
-    <table class="simple-table">
-      <thead>
-        <tr>
-          <th>Datum</th>
-          <th>Položka</th>
-          <th>Částka</th>
-          <th>Stav</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for sale in sale_charges %}
-          <tr>
-            <td>{{ sale.created_at|date:"d.m.Y" }}</td>
-            <td>{{ sale.title }}{% if sale.note %}<div class="muted-small">{{ sale.note }}</div>{% endif %}</td>
-            <td>{{ sale.amount_czk }} Kč</td>
-            <td>
-              {% if sale.paid %}
-                <span style="color:#188b4a;font-weight:700;">Uhrazeno</span>
-              {% else %}
-                <span style="color:#8b1e1e;font-weight:700;">Čeká</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="4" class="muted-small">Bez prodejních položek.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h3 style="margin-top:14px;">Údaje dítěte</h3>
-  <form method="post">
-    {% csrf_token %}
-    {% for field in form %}
-      <div class="form-row">
-        <label>{{ field.label }}</label>
-        {{ field }}
-        {{ field.errors }}
+<div class="child-layout">
+  <div class="child-stack">
+    <section class="child-card">
+      <h3>Členství ve skupinách</h3>
+      <div class="table-wrap">
+        <table class="simple-table">
+          <thead>
+            <tr>
+              <th>Skupina</th>
+              <th>Varianta</th>
+              <th>Zařazení od</th>
+              <th>Stav</th>
+              <th>Ukončení</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for membership in memberships %}
+              <tr>
+                <td>{{ membership.group.sport.name }} - {{ membership.group.name }}</td>
+                <td>{% if membership.attendance_option %}{{ membership.attendance_option.name }}{% else %}-{% endif %}</td>
+                <td>
+                  <form id="membership-date-{{ membership.id }}" method="post" class="membership-date-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="membership_id" value="{{ membership.id }}">
+                    <input type="hidden" name="update_membership_date" value="1">
+                    <input
+                      type="date"
+                      class="membership-date-input"
+                      name="registered_at_date"
+                      value="{{ membership.registered_at|date:'Y-m-d' }}"
+                      {% if not membership.active %}disabled{% endif %}
+                    >
+                  </form>
+                </td>
+                <td>
+                  {% if membership.active %}
+                    <span class="membership-status-active">Aktivní</span>
+                  {% else %}
+                    <span class="muted-small">Ukončeno</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if membership.active %}
+                    <div class="membership-end-actions">
+                      <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="membership_id" value="{{ membership.id }}">
+                        <input type="hidden" name="end_membership" value="1">
+                        <input type="hidden" name="end_mode" value="without_refund">
+                        <button class="btn secondary" style="padding:5px 10px;" type="submit">Bez vratky</button>
+                      </form>
+                      <form method="post" class="membership-refund-row">
+                        {% csrf_token %}
+                        <input type="hidden" name="membership_id" value="{{ membership.id }}">
+                        <input type="hidden" name="end_membership" value="1">
+                        <input type="hidden" name="end_mode" value="with_refund">
+                        <input type="number" name="refund_amount" step="0.01" min="0" placeholder="Vratka Kč">
+                        <button class="btn" style="padding:5px 10px;" type="submit">S vratkou</button>
+                      </form>
+                    </div>
+                  {% else %}
+                    <span class="muted-small">Členství ukončeno</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="5" class="muted-small">Dítě zatím není přiřazeno do žádné skupiny.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-    {% endfor %}
-    <button class="btn" type="submit" name="save_child" value="1">Uložit</button>
-  </form>
 
-  <h3 style="margin-top:14px;">Archiv (finance a změny)</h3>
+      <h3 style="margin-top:12px;">Přidat do jiné skupiny</h3>
+      <form method="post" class="inline-grid membership-add-grid">
+        {% csrf_token %}
+        <div>
+          <label>Skupina</label>
+          {{ membership_form.group }}
+          {{ membership_form.group.errors }}
+        </div>
+        <div>
+          <label>Docházková varianta</label>
+          {{ membership_form.attendance_option }}
+          {{ membership_form.attendance_option.errors }}
+        </div>
+        <button class="btn" type="submit" name="add_membership" value="1">Přidat</button>
+      </form>
+    </section>
+
+    <section class="child-card">
+      <h3>Prodejní položky</h3>
+      <form method="post" class="inline-grid sale-add-grid">
+        {% csrf_token %}
+        <input type="hidden" name="add_sale_charge" value="1">
+        <div>
+          <label>Položka</label>
+          <input type="text" name="sale_title" placeholder="Např. sportovní dres" required>
+        </div>
+        <div>
+          <label>Částka (Kč)</label>
+          <input type="number" name="sale_amount" step="0.01" min="0" required>
+        </div>
+        <div>
+          <label>Poznámka</label>
+          <input type="text" name="sale_note" placeholder="Volitelné">
+        </div>
+        <button class="btn" type="submit">Přidat</button>
+      </form>
+      <div class="table-wrap" style="margin-top:8px;">
+        <table class="simple-table">
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Položka</th>
+              <th>Částka</th>
+              <th>Stav</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for sale in sale_charges %}
+              <tr>
+                <td>{{ sale.created_at|date:"d.m.Y" }}</td>
+                <td>{{ sale.title }}{% if sale.note %}<div class="muted-small">{{ sale.note }}</div>{% endif %}</td>
+                <td>{{ sale.amount_czk }} Kč</td>
+                <td>
+                  {% if sale.paid %}
+                    <span class="membership-status-active">Uhrazeno</span>
+                  {% else %}
+                    <span style="color:#8b1e1e;font-weight:700;">Čeká</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="muted-small">Bez prodejních položek.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <aside class="child-stack">
+    <section class="child-card">
+      <h3>Údaje dítěte</h3>
+      <form method="post" class="right-form">
+        {% csrf_token %}
+        {% for field in form %}
+          <div class="form-row">
+            <label>{{ field.label }}</label>
+            <div>
+              {{ field }}
+              {{ field.errors }}
+            </div>
+          </div>
+        {% endfor %}
+        <button class="btn" type="submit" name="save_child" value="1">Uložit</button>
+      </form>
+    </section>
+  </aside>
+</div>
+
+<section class="child-card">
+  <h3>Archiv (finance a změny)</h3>
   <div class="table-wrap">
     <table class="simple-table">
       <thead>

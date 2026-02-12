@@ -70,36 +70,6 @@
             {% endfor %}
           </div>
 
-          <div style="margin-top:10px;"><strong>Výzvy k úhradě (prodej)</strong></div>
-          {% if child.charge_rows %}
-              <table class="charge-table">
-                <thead>
-                  <tr>
-                    <th>Položka</th>
-                    <th>Částka</th>
-                    <th>Stav</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for charge in child.charge_rows %}
-                    <tr>
-                      <td>{{ charge.title }}{% if charge.note %}<div class="muted">{{ charge.note }}</div>{% endif %}</td>
-                      <td>{{ charge.amount_czk }} Kč</td>
-                      <td>
-                        {% if charge.paid %}
-                          <span class="charge-paid">Uhrazeno</span>
-                        {% else %}
-                          <span class="charge-open">Čeká na úhradu</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-          {% else %}
-            <div class="muted" style="margin-top:6px;">Bez otevřených prodejních položek.</div>
-          {% endif %}
-
           <div style="margin-top:10px;"><strong>Ekonomika ID</strong></div>
           {% if child.finance_rows %}
             <table class="charge-table">
@@ -109,15 +79,23 @@
                   <th>Událost</th>
                   <th>Částka</th>
                   <th>Stav</th>
+                  <th>QR</th>
                 </tr>
               </thead>
               <tbody>
                 {% for row in child.finance_rows %}
                   <tr>
                     <td>{{ row.occurred_on|date:"d.m.Y" }}</td>
-                    <td>{{ row.title }}</td>
+                    <td>{{ row.display_title }}</td>
                     <td>{{ row.amount_czk }} Kč</td>
-                    <td>{{ row.get_status_display }}</td>
+                    <td>{{ row.parent_status_label }}</td>
+                    <td>
+                      {% if row.can_qr %}
+                        <a class="btn secondary" style="padding:4px 10px;" href="/parent/child/{{ child.id }}/?qr_entry={{ row.id }}#qr-platba">QR</a>
+                      {% else %}
+                        <span class="muted">—</span>
+                      {% endif %}
+                    </td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -126,7 +104,35 @@
             <div class="muted" style="margin-top:6px;">Bez ekonomických záznamů.</div>
           {% endif %}
 
-          <div style="margin-top:10px;"><a class="btn secondary" href="/parent/child/{{ child.id }}/">Karta dítěte</a></div>
+          <div style="margin-top:10px;"><strong>Poslední 3 přítomnosti na tréninku</strong></div>
+          {% if child.attendance_preview %}
+            <table class="charge-table">
+              <thead>
+                <tr>
+                  <th>Datum</th>
+                  <th>Skupina</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in child.attendance_preview %}
+                  <tr>
+                    <td>{{ row.session.date|date:"d.m.Y" }}</td>
+                    <td>{{ row.session.group.sport.name }} - {{ row.session.group.name }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="muted" style="margin-top:6px;">Zatím bez záznamu přítomnosti.</div>
+          {% endif %}
+
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn secondary" href="/parent/child/{{ child.id }}#dochazka-dite">Další</a>
+            <a class="btn secondary" href="/parent/child/{{ child.id }}/">Karta dítěte</a>
+            {% if child.due_total > 0 %}
+              <a class="btn" href="/parent/child/{{ child.id }}/#qr-platba">QR celkem</a>
+            {% endif %}
+          </div>
         </section>
       {% endfor %}
     </div>
@@ -136,10 +142,19 @@
 
   <h3 style="margin-top:14px;">Dokumenty ke stažení</h3>
   <ul>
+    {% for doc in proforma_documents %}
+      <li>
+        <a href="/parent/proforma/{{ doc.id }}/" target="_blank" rel="noopener">
+          Zálohový doklad {{ doc.reference_code|default:"Záloha" }} – {{ doc.child.first_name }} {{ doc.child.last_name }} ({{ doc.amount_czk }} Kč)
+        </a>
+      </li>
+    {% endfor %}
     {% for doc in documents %}
       <li><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a></li>
     {% empty %}
-      <li class="muted">Dokumenty zatím nejsou nahrané.</li>
+      {% if not proforma_documents %}
+        <li class="muted">Dokumenty zatím nejsou nahrané.</li>
+      {% endif %}
     {% endfor %}
   </ul>
 </div>

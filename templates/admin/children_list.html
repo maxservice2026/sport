@@ -2,6 +2,90 @@
 
 {% block admin_content %}
 <style>
+  .filters-row {
+    margin: 12px 0;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+  .groups-picker {
+    position: relative;
+    min-width: 280px;
+  }
+  .groups-picker > summary {
+    list-style: none;
+    cursor: pointer;
+    border: 1px solid #cfd8e3;
+    border-radius: 10px;
+    background: #fff;
+    min-height: 42px;
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    color: #1a1f26;
+    font-weight: 600;
+  }
+  .groups-picker > summary::-webkit-details-marker {
+    display: none;
+  }
+  .groups-picker[open] > summary {
+    border-color: #9fb5cc;
+    box-shadow: 0 0 0 3px rgba(30, 95, 143, 0.08);
+  }
+  .groups-panel {
+    position: absolute;
+    z-index: 20;
+    margin-top: 6px;
+    width: 100%;
+    border: 1px solid #cfd8e3;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+    padding: 10px;
+  }
+  .groups-panel input[type="text"] {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  .groups-list {
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid #e7ecf2;
+    border-radius: 8px;
+    padding: 6px;
+    background: #fbfcfe;
+  }
+  .groups-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+  .groups-item:hover {
+    background: #eef4fb;
+  }
+  .groups-item input[type="checkbox"] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+  }
+  .groups-actions {
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .chip-btn {
+    border: 1px solid #ccd6e3;
+    background: #f6f9fc;
+    color: #334155;
+    border-radius: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
   .children-table {
     width: 100%;
     border-collapse: collapse;
@@ -43,19 +127,30 @@
 </section>
 
 <section class="page-panel">
-  <form id="children-filter" method="get" style="margin:12px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:end;">
+  <form id="children-filter" method="get" class="filters-row">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="dir" value="{{ direction }}">
     <input type="text" name="q" placeholder="Hledat jméno, VS nebo skupinu" value="{{ query }}" style="max-width:260px;">
     <div>
-      <label for="children-groups">Skupiny (můžete vybrat více)</label>
-      <select id="children-groups" name="groups" multiple size="6" style="min-width:260px;">
-        {% for group in groups %}
-          <option value="{{ group.id }}" {% if group.id|stringformat:"s" in group_filters %}selected{% endif %}>
-            {{ group.sport.name }} – {{ group.name }}
-          </option>
-        {% endfor %}
-      </select>
+      <label>Skupiny (můžete vybrat více)</label>
+      <details class="groups-picker" id="groups-picker">
+        <summary id="groups-picker-label">Vyberte skupiny</summary>
+        <div class="groups-panel">
+          <input type="text" id="groups-search" placeholder="Filtrovat skupiny...">
+          <div class="groups-list" id="groups-list">
+            {% for group in groups %}
+              <label class="groups-item" data-group-label="{{ group.sport.name|lower }} {{ group.name|lower }}">
+                <input type="checkbox" name="groups" value="{{ group.id }}" {% if group.id|stringformat:"s" in group_filters %}checked{% endif %}>
+                <span>{{ group.sport.name }} – {{ group.name }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="groups-actions">
+            <button type="button" class="chip-btn" id="groups-select-all">Označit vše</button>
+            <button type="button" class="chip-btn" id="groups-clear-all">Zrušit vše</button>
+          </div>
+        </div>
+      </details>
     </div>
     <a class="btn" href="/admin/children/export.xls?q={{ query|urlencode }}&sort={{ sort }}&dir={{ direction }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Export XLS</a>
     {% if query or group_filters %}
@@ -127,7 +222,27 @@
     const form = document.getElementById('children-filter');
     if (!form) return;
     const searchInput = form.querySelector('input[name="q"]');
-    const groupSelect = form.querySelector('select[name="groups"]');
+    const groupChecks = Array.from(form.querySelectorAll('input[type="checkbox"][name="groups"]'));
+    const groupSearch = document.getElementById('groups-search');
+    const groupPickerLabel = document.getElementById('groups-picker-label');
+    const selectAllBtn = document.getElementById('groups-select-all');
+    const clearAllBtn = document.getElementById('groups-clear-all');
+
+    const updatePickerLabel = () => {
+      if (!groupPickerLabel) return;
+      const selected = groupChecks.filter((el) => el.checked);
+      if (!selected.length) {
+        groupPickerLabel.textContent = 'Vyberte skupiny';
+        return;
+      }
+      if (selected.length === 1) {
+        const label = selected[0].closest('.groups-item')?.querySelector('span')?.textContent?.trim();
+        groupPickerLabel.textContent = label || '1 skupina vybrána';
+        return;
+      }
+      groupPickerLabel.textContent = `Vybráno skupin: ${selected.length}`;
+    };
+
     if (searchInput) {
       let timer = null;
       searchInput.addEventListener('input', function () {
@@ -137,8 +252,41 @@
         }, 350);
       });
     }
-    if (groupSelect) {
-      groupSelect.addEventListener('change', () => form.submit());
+
+    if (groupChecks.length) {
+      groupChecks.forEach((check) => {
+        check.addEventListener('change', () => {
+          updatePickerLabel();
+          form.submit();
+        });
+      });
+      updatePickerLabel();
+    }
+
+    if (groupSearch) {
+      groupSearch.addEventListener('input', () => {
+        const q = groupSearch.value.trim().toLowerCase();
+        form.querySelectorAll('.groups-item').forEach((item) => {
+          const text = (item.dataset.groupLabel || '').toLowerCase();
+          item.style.display = !q || text.includes(q) ? '' : 'none';
+        });
+      });
+    }
+
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener('click', () => {
+        groupChecks.forEach((check) => { check.checked = true; });
+        updatePickerLabel();
+        form.submit();
+      });
+    }
+
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', () => {
+        groupChecks.forEach((check) => { check.checked = false; });
+        updatePickerLabel();
+        form.submit();
+      });
     }
   })();
 </script>

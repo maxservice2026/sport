@@ -10,6 +10,31 @@
   <p style="margin:0 0 10px;">
     <a class="btn secondary" href="/admin/payments/">Přijaté platby</a>
   </p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin:0 0 12px;">
+    <form method="post" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;padding:10px;border:1px solid #e8edf2;border-radius:10px;background:#fafcff;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="authorize_proforma_group">
+      <div style="min-width:220px;flex:1;">
+        <label for="bulk-group-id">Autorizace záloh pro celou skupinu</label>
+        <select id="bulk-group-id" name="group_id">
+          <option value="">— vyberte skupinu —</option>
+          {% for group in groups_nav %}
+            <option value="{{ group.id }}">{{ group.sport.name }} - {{ group.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn" type="submit">Autorizovat skupinu</button>
+    </form>
+
+    <form id="bulk-selected-form" method="post" style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding:10px;border:1px solid #e8edf2;border-radius:10px;background:#fafcff;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="authorize_proforma_selected">
+      <div class="muted" style="min-width:220px;flex:1;">Autorizace záloh pro vybrané děti (zaškrtnuté řádky).</div>
+      <button class="btn" id="bulk-selected-submit" type="submit" disabled>Autorizovat vybrané</button>
+    </form>
+  </div>
+
   <form method="get" style="margin:10px 0 14px;max-width:420px;">
     <label for="contrib-search">Hledej</label>
     <input id="contrib-search" type="text" name="q" value="{{ query }}" placeholder="Jméno nebo variabilní symbol">
@@ -21,6 +46,9 @@
     <table style="width:100%;border-collapse:collapse;min-width:1100px;">
       <thead>
         <tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:8px;width:34px;">
+            <input type="checkbox" id="bulk-select-all" title="Vybrat vše">
+          </th>
           <th style="padding:8px;"><a href="?sort=name&dir={% if sort == 'name' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Jméno</a></th>
           <th style="padding:8px;"><a href="?sort=phone&dir={% if sort == 'phone' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Telefon</a></th>
           <th style="padding:8px;"><a href="?sort=vs&dir={% if sort == 'vs' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">VS</a></th>
@@ -38,6 +66,9 @@
       <tbody>
         {% for row in rows %}
           <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:8px;">
+              <input type="checkbox" class="bulk-select-item" name="selected_membership_ids" value="{{ row.id }}" form="bulk-selected-form">
+            </td>
             <td style="padding:8px;">{{ row.child.first_name }} {{ row.child.last_name }}</td>
             <td style="padding:8px;">{{ row.child.parent.phone|default:"-" }}</td>
             <td style="padding:8px;">{{ row.child.variable_symbol }}</td>
@@ -95,14 +126,14 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="12" style="padding:10px;" class="muted">Žádné záznamy.</td>
+            <td colspan="13" style="padding:10px;" class="muted">Žádné záznamy.</td>
           </tr>
         {% endfor %}
       </tbody>
       {% if rows %}
       <tfoot>
         <tr style="border-top:2px solid #ddd;font-weight:700;">
-          <td colspan="10" style="padding:10px;text-align:right;">Celkem k úhradě</td>
+          <td colspan="11" style="padding:10px;text-align:right;">Celkem k úhradě</td>
           <td colspan="2" style="padding:10px;">{{ total_due }}</td>
         </tr>
       </tfoot>
@@ -127,6 +158,31 @@
 <script>
   (function () {
     const input = document.getElementById('contrib-search');
+    const bulkButton = document.getElementById('bulk-selected-submit');
+    const selectAll = document.getElementById('bulk-select-all');
+    const checkItems = Array.from(document.querySelectorAll('.bulk-select-item'));
+
+    const refreshBulkState = () => {
+      if (!bulkButton) return;
+      const checkedCount = checkItems.filter((el) => el.checked).length;
+      bulkButton.disabled = checkedCount === 0;
+      if (selectAll) {
+        selectAll.checked = checkItems.length > 0 && checkedCount === checkItems.length;
+      }
+    };
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        checkItems.forEach((el) => { el.checked = selectAll.checked; });
+        refreshBulkState();
+      });
+    }
+
+    checkItems.forEach((el) => {
+      el.addEventListener('change', refreshBulkState);
+    });
+    refreshBulkState();
+
     if (!input) return;
     let timer = null;
     input.addEventListener('input', function () {

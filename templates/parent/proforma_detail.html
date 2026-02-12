@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card" style="max-width:760px;margin:0 auto;">
+  <h2>Zálohový doklad</h2>
+  <p class="muted">
+    Číslo dokladu: <strong>{{ entry.reference_code|default:"Záloha" }}</strong><br>
+    Dítě: <strong>{{ entry.child.first_name }} {{ entry.child.last_name }}</strong><br>
+    VS: <strong>{{ entry.variable_symbol }}</strong><br>
+    Datum vystavení: <strong>{{ entry.occurred_on|date:"d.m.Y" }}</strong><br>
+    Stav: <strong>{{ entry.get_status_display }}</strong>
+  </p>
+
+  {% if entry.membership %}
+    <p>
+      <strong>Skupina:</strong> {{ entry.membership.group.sport.name }} - {{ entry.membership.group.name }}<br>
+      <strong>Varianta:</strong> {% if entry.membership.attendance_option %}{{ entry.membership.attendance_option.name }}{% else %}-{% endif %}
+    </p>
+  {% endif %}
+
+  <h3>Částka k úhradě</h3>
+  <p style="font-size:30px;font-weight:800;margin:0 0 10px;">{{ entry.amount_czk }} Kč</p>
+  {% if entry.note %}
+    <p class="muted">{{ entry.note }}</p>
+  {% endif %}
+
+  <h3 id="qr-platba">QR platba</h3>
+  {% if qr_amount > 0 %}
+    <img
+      alt="QR platba"
+      src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data={{ 'SPD*1.0*ACC:CZ210300000000290625104*CC:CZK*AM:'|add:qr_amount|add:'*X-VS:'|add:entry.variable_symbol|urlencode }}"
+      style="max-width:260px;border:1px solid #d9e0e8;border-radius:8px;padding:4px;background:#fff;"
+    >
+  {% else %}
+    <p class="muted">Doklad je uzavřený, QR platba není potřeba.</p>
+  {% endif %}
+
+  <p style="margin-top:14px;">
+    <a class="btn secondary" href="/parent/">Zpět na rodičovský přehled</a>
+  </p>
+</div>
+{% endblock %}

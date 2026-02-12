@@ -164,10 +164,14 @@ class RegistrationForm(forms.Form):
     password2 = forms.CharField(label='Heslo znovu', widget=forms.PasswordInput)
 
     def __init__(self, *args, **kwargs):
+        self._current_parent = kwargs.pop('parent_user', None)
+        if not (self._current_parent and getattr(self._current_parent, 'is_authenticated', False) and self._current_parent.role == 'parent'):
+            self._current_parent = None
         super().__init__(*args, **kwargs)
-        self._existing_parent = None
+        self._existing_parent = self._current_parent
         self._existing_child = None
         self._membership_payload = []
+        self.is_parent_registration = bool(self._current_parent)
         self.fields['group'].queryset = (
             Group.objects
             .select_related('sport')
@@ -195,6 +199,27 @@ class RegistrationForm(forms.Form):
         else:
             self.fields['start_month'].choices = [('', '— nejdřív vyberte skupinu —')]
 
+        if self.is_parent_registration:
+            for field_name in [
+                'parent_first_name',
+                'parent_last_name',
+                'parent_email',
+                'parent_phone',
+                'parent_street',
+                'parent_city',
+                'parent_zip',
+                'password1',
+                'password2',
+            ]:
+                self.fields[field_name].required = False
+            self.fields['parent_first_name'].initial = self._current_parent.first_name
+            self.fields['parent_last_name'].initial = self._current_parent.last_name
+            self.fields['parent_email'].initial = self._current_parent.email
+            self.fields['parent_phone'].initial = self._current_parent.phone
+            self.fields['parent_street'].initial = self._current_parent.street
+            self.fields['parent_city'].initial = self._current_parent.city
+            self.fields['parent_zip'].initial = self._current_parent.zip_code
+
     @staticmethod
     def _group_label(group):
         label = f"{group.sport.name} - {group.name}"
@@ -214,24 +239,33 @@ class RegistrationForm(forms.Form):
         parent_email = cleaned.get('parent_email')
         group = cleaned.get('group')
 
-        if password1 and password2 and password1 != password2:
-            self.add_error('password2', 'Hesla se neshodují.')
+        if self.is_parent_registration:
+            cleaned['parent_first_name'] = self._current_parent.first_name
+            cleaned['parent_last_name'] = self._current_parent.last_name
+            cleaned['parent_email'] = self._current_parent.email
+            cleaned['parent_phone'] = self._current_parent.phone
+            cleaned['parent_street'] = self._current_parent.street
+            cleaned['parent_city'] = self._current_parent.city
+            cleaned['parent_zip'] = self._current_parent.zip_code
+        else:
+            if password1 and password2 and password1 != password2:
+                self.add_error('password2', 'Hesla se neshodují.')
 
-        parent = None
-        if parent_email:
-            parent = User.objects.filter(email=parent_email).first()
-            if parent:
-                if parent.role != 'parent':
-                    self.add_error('parent_email', 'Tento email patří jinému typu uživatele.')
-                else:
-                    if not password1:
-                        self.add_error('password1', 'Zadejte heslo k existujícímu rodičovskému účtu.')
+            parent = None
+            if parent_email:
+                parent = User.objects.filter(email=parent_email).first()
+                if parent:
+                    if parent.role != 'parent':
+                        self.add_error('parent_email', 'Tento email patří jinému typu uživatele.')
                     else:
-                        user = authenticate(username=parent_email, password=password1)
-                        if not user:
-                            self.add_error('password1', 'Nesprávné heslo pro existující rodičovský účet.')
+                        if not password1:
+                            self.add_error('password1', 'Zadejte heslo k existujícímu rodičovskému účtu.')
                         else:
-                            self._existing_parent = parent
+                            user = authenticate(username=parent_email, password=password1)
+                            if not user:
+                                self.add_error('password1', 'Nesprávné heslo pro existující rodičovský účet.')
+                            else:
+                                self._existing_parent = parent
 
         if not birth_number and not passport_number:
             self.add_error('birth_number', 'Zadejte rodné číslo, nebo vyplňte číslo pasu u cizince.')
@@ -360,14 +394,15 @@ class RegistrationForm(forms.Form):
                 )
                 created_parent = True
             else:
-                # update parent data from form (keeps info current)
-                parent.first_name = data['parent_first_name']
-                parent.last_name = data['parent_last_name']
-                parent.phone = data['parent_phone']
-                parent.street = data['parent_street']
-                parent.city = data['parent_city']
-                parent.zip_code = data['parent_zip']
-                parent.save()
+                if not self.is_parent_registration:
+                    # update parent data from form (keeps info current)
+                    parent.first_name = data['parent_first_name']
+                    parent.last_name = data['parent_last_name']
+                    parent.phone = data['parent_phone']
+                    parent.street = data['parent_street']
+                    parent.city = data['parent_city']
+                    parent.zip_code = data['parent_zip']
+                    parent.save()
 
             child = self._existing_child
             created_child = False

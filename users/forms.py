@@ -1,5 +1,5 @@
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm, UserCreationForm, UserChangeForm
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm, UserChangeForm, PasswordResetForm
 from django.core.exceptions import ValidationError
 from clubs.models import Group
 from .models import User, AppSettings
@@ -7,6 +7,12 @@ from .models import User, AppSettings
 
 class EmailAuthenticationForm(AuthenticationForm):
     username = forms.EmailField(label='Email', widget=forms.EmailInput(attrs={'autofocus': True}))
+
+
+class SilentPasswordResetForm(PasswordResetForm):
+    def save(self, *args, **kwargs):
+        kwargs['fail_silently'] = True
+        return super().save(*args, **kwargs)
 
 
 class ParentProfileForm(forms.ModelForm):

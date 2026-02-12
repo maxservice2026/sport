@@ -1,16 +1,24 @@
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 import imaplib
 import smtplib
 import ssl
 
 from django.contrib import messages
 from django.contrib.auth import login, logout
+from django.contrib.auth.views import PasswordResetView, PasswordResetDoneView, PasswordResetConfirmView, PasswordResetCompleteView
 from django.db.models import Count, Q, Sum
 from django.shortcuts import render, redirect, get_object_or_404
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 
-from .forms import EmailAuthenticationForm, ParentProfileForm, TrainerCreateForm, TrainerUpdateForm, AppSettingsForm
+from .forms import (
+    EmailAuthenticationForm,
+    SilentPasswordResetForm,
+    ParentProfileForm,
+    TrainerCreateForm,
+    TrainerUpdateForm,
+    AppSettingsForm,
+)
 from .utils import role_required, get_app_settings
 from clubs.models import Group, Sport, Child, Membership, TrainerGroup, SaleCharge, ReceivedPayment, ChildFinanceEntry, ClubDocument
 from clubs.payments import build_payment_counter, consume_matching_payment
@@ -29,6 +37,27 @@ DAY_TO_WEEKDAY = {
     'So': 5,
     'Ne': 6,
 }
+
+
+class UserPasswordResetView(PasswordResetView):
+    template_name = 'accounts/password_reset_form.html'
+    email_template_name = 'accounts/password_reset_email.txt'
+    subject_template_name = 'accounts/password_reset_subject.txt'
+    form_class = SilentPasswordResetForm
+    success_url = reverse_lazy('password_reset_done')
+
+
+class UserPasswordResetDoneView(PasswordResetDoneView):
+    template_name = 'accounts/password_reset_done.html'
+
+
+class UserPasswordResetConfirmView(PasswordResetConfirmView):
+    template_name = 'accounts/password_reset_confirm.html'
+    success_url = reverse_lazy('password_reset_complete')
+
+
+class UserPasswordResetCompleteView(PasswordResetCompleteView):
+    template_name = 'accounts/password_reset_complete.html'
 
 
 def _add_months_safe(value, months):
@@ -850,6 +879,20 @@ def parent_dashboard(request):
         charge.paid = charge_paid_map.get(charge.id, False)
         child_charges.setdefault(charge.child_id, []).append(charge)
 
+    due_totals_map = {
+        row['child_id']: row['total'] or Decimal('0.00')
+        for row in (
+            ChildFinanceEntry.objects
+            .filter(
+                child__parent=request.user,
+                direction=ChildFinanceEntry.DIR_DEBIT,
+                status=ChildFinanceEntry.STATUS_OPEN,
+            )
+            .values('child_id')
+            .annotate(total=Sum('amount_czk'))
+        )
+    }
+
     for child in children:
         child.charge_rows = child_charges.get(child.id, [])
         child.finance_rows = list(
@@ -858,11 +901,49 @@ def parent_dashboard(request):
             .select_related('membership', 'membership__group')
             .order_by('-occurred_on', '-id')[:30]
         )
+        for row in child.finance_rows:
+            if row.event_type in (ChildFinanceEntry.TYPE_PROFORMA, ChildFinanceEntry.TYPE_INVOICE):
+                row.display_title = 'Členství'
+            else:
+                row.display_title = row.title
+
+            if row.direction == ChildFinanceEntry.DIR_DEBIT and row.status == ChildFinanceEntry.STATUS_OPEN:
+                row.parent_status_label = 'Čeká na úhradu'
+            elif row.status == ChildFinanceEntry.STATUS_CLOSED and row.direction == ChildFinanceEntry.DIR_DEBIT:
+                row.parent_status_label = 'Uhrazeno'
+            elif row.status == ChildFinanceEntry.STATUS_CANCELLED:
+                row.parent_status_label = 'Storno'
+            else:
+                row.parent_status_label = row.get_status_display()
+            row.can_qr = (
+                row.direction == ChildFinanceEntry.DIR_DEBIT
+                and row.status == ChildFinanceEntry.STATUS_OPEN
+                and row.amount_czk > 0
+            )
+
+        child.attendance_preview = list(
+            Attendance.objects
+            .filter(child=child, present=True)
+            .select_related('session__group', 'session__group__sport')
+            .order_by('-session__date', '-id')[:3]
+        )
         child.active_memberships = [m for m in child.memberships.all() if m.active]
         child.ended_memberships = [m for m in child.memberships.all() if not m.active]
+        child.due_total = due_totals_map.get(child.id, Decimal('0.00'))
+
+    proforma_documents = list(
+        ChildFinanceEntry.objects
+        .filter(
+            child__parent=request.user,
+            event_type=ChildFinanceEntry.TYPE_PROFORMA,
+        )
+        .select_related('child', 'membership', 'membership__group')
+        .order_by('-occurred_on', '-id')
+    )
 
     return render(request, 'parent/dashboard.html', {
         'children': children,
+        'proforma_documents': proforma_documents,
         'documents': ClubDocument.objects.order_by('-uploaded_at', '-id')[:30],
     })
 
@@ -898,6 +979,53 @@ def parent_child_detail(request, child_id):
             child.variable_symbol,
             charge.amount_czk,
         )
+    selected_entry = None
+    qr_entry_id = (request.GET.get('qr_entry') or '').strip()
+    if qr_entry_id.isdigit():
+        selected_entry = (
+            ChildFinanceEntry.objects
+            .filter(
+                id=qr_entry_id,
+                child=child,
+                direction=ChildFinanceEntry.DIR_DEBIT,
+                status=ChildFinanceEntry.STATUS_OPEN,
+                amount_czk__gt=0,
+            )
+            .first()
+        )
+
+    if not selected_entry:
+        qr_charge_id = (request.GET.get('qr_charge') or '').strip()
+        if qr_charge_id.isdigit():
+            selected_charge = next((charge for charge in sale_charges if str(charge.id) == qr_charge_id), None)
+            if selected_charge and not selected_charge.paid:
+                selected_entry = (
+                    ChildFinanceEntry.objects
+                    .filter(
+                        child=child,
+                        event_type=ChildFinanceEntry.TYPE_SALE,
+                        status=ChildFinanceEntry.STATUS_OPEN,
+                        amount_czk=selected_charge.amount_czk,
+                    )
+                    .order_by('-id')
+                    .first()
+                )
+
+    if not selected_entry:
+        qr_proforma_id = (request.GET.get('qr_proforma') or '').strip()
+        if qr_proforma_id.isdigit():
+            selected_entry = (
+                ChildFinanceEntry.objects
+                .filter(
+                    id=qr_proforma_id,
+                    child=child,
+                    event_type=ChildFinanceEntry.TYPE_PROFORMA,
+                    direction=ChildFinanceEntry.DIR_DEBIT,
+                    status=ChildFinanceEntry.STATUS_OPEN,
+                )
+                .first()
+            )
+
     attendance_rows = list(
         Attendance.objects
         .filter(child=child)
@@ -910,6 +1038,23 @@ def parent_child_detail(request, child_id):
         status=ChildFinanceEntry.STATUS_OPEN,
     )
     due_total = sum((entry.amount_czk for entry in open_debit), Decimal('0.00'))
+    qr_amount = due_total
+    qr_title = 'Souhrnná úhrada'
+    qr_message = 'Souhrnná úhrada členství a položek'
+    if selected_entry:
+        qr_amount = selected_entry.amount_czk
+        if selected_entry.event_type in (ChildFinanceEntry.TYPE_PROFORMA, ChildFinanceEntry.TYPE_INVOICE):
+            qr_title = 'Členství'
+            qr_message = 'Členství'
+        else:
+            qr_title = selected_entry.title
+            qr_message = selected_entry.title or 'Úhrada'
+    if not isinstance(qr_amount, Decimal):
+        try:
+            qr_amount = Decimal(qr_amount)
+        except (TypeError, InvalidOperation):
+            qr_amount = Decimal('0.00')
+
     return render(request, 'parent/child_detail.html', {
         'child': child,
         'form': form,
@@ -918,5 +1063,29 @@ def parent_child_detail(request, child_id):
         'finance_entries': ChildFinanceEntry.objects.filter(child=child).select_related('membership', 'membership__group').order_by('-occurred_on', '-id'),
         'attendance_rows': attendance_rows,
         'due_total': due_total,
+        'qr_amount': qr_amount,
+        'qr_title': qr_title,
+        'qr_message': qr_message,
+        'selected_entry': selected_entry,
         'documents': ClubDocument.objects.order_by('-uploaded_at', '-id')[:30],
+    })
+
+
+@role_required('parent')
+def parent_proforma_detail(request, entry_id):
+    entry = get_object_or_404(
+        ChildFinanceEntry.objects
+        .select_related('child', 'child__parent', 'membership', 'membership__group', 'membership__group__sport')
+        .filter(event_type=ChildFinanceEntry.TYPE_PROFORMA),
+        id=entry_id,
+        child__parent=request.user,
+    )
+    qr_amount = entry.amount_czk if (
+        entry.direction == ChildFinanceEntry.DIR_DEBIT
+        and entry.status == ChildFinanceEntry.STATUS_OPEN
+        and entry.amount_czk > 0
+    ) else Decimal('0.00')
+    return render(request, 'parent/proforma_detail.html', {
+        'entry': entry,
+        'qr_amount': qr_amount,
     })
