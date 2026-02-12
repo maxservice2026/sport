@@ -1,0 +1,53 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<section class="page-hero">
+  <h2>Dokumenty</h2>
+  <p>Nahrání a správa dokumentů klubu (PDF, JPG, PNG).</p>
+</section>
+
+<section class="page-panel">
+  <h3>Nahrát dokument</h3>
+  <form method="post" enctype="multipart/form-data" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;margin-bottom:14px;">
+    {% csrf_token %}
+    <div>
+      <label>{{ form.title.label }}</label>
+      {{ form.title }}
+      {{ form.title.errors }}
+    </div>
+    <div>
+      <label>{{ form.file.label }}</label>
+      {{ form.file }}
+      {{ form.file.errors }}
+    </div>
+    <button class="btn" type="submit">Uložit</button>
+  </form>
+
+  <div class="table-wrap">
+    <table style="width:100%;border-collapse:collapse;min-width:760px;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:8px;">Název</th>
+          <th style="padding:8px;">Soubor</th>
+          <th style="padding:8px;">Nahrál</th>
+          <th style="padding:8px;">Datum</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in documents %}
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:8px;">{{ doc.title }}</td>
+            <td style="padding:8px;"><a href="{{ doc.file.url }}" target="_blank" rel="noopener">Otevřít</a></td>
+            <td style="padding:8px;">{% if doc.uploaded_by %}{{ doc.uploaded_by.email }}{% else %}-{% endif %}</td>
+            <td style="padding:8px;">{{ doc.uploaded_at|date:"d.m.Y H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" style="padding:10px;" class="muted">Zatím bez dokumentů.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

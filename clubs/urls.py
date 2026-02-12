@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path('registrace/', views.public_register, name='public_register'),
+    path('doplnit-udaje/', views.public_data_completion, name='public_data_completion'),
     path('api/attendance-options/', views.attendance_options_api, name='attendance_options_api'),
     path('admin/groups/', views.admin_group_list, name='admin_groups'),
     path('admin/groups/new/', views.admin_group_create, name='admin_group_create'),
@@ -13,4 +14,5 @@ urlpatterns = [
     path('admin/children/<int:child_id>/', views.admin_child_edit, name='admin_child_edit'),
     path('admin/contributions/', views.admin_contributions, name='admin_contributions'),
     path('admin/payments/', views.admin_received_payments, name='admin_received_payments'),
+    path('admin/documents/', views.admin_documents, name='admin_documents'),
 ]

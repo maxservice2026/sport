@@ -3,10 +3,11 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate
 from django.db import transaction
 from datetime import date
+import json
 import re
 
 from users.models import User
-from .models import Sport, Group, AttendanceOption, Child, Membership, ReceivedPayment
+from .models import Group, AttendanceOption, Child, Membership, ReceivedPayment, ClubDocument, ChildConsent
 from .pricing import group_month_starts, normalize_start_month
 
 BIRTH_NUMBER_RE = re.compile(r'^\d{6}/\d{3,4}$')
@@ -48,7 +49,17 @@ class GroupAdminForm(forms.ModelForm):
 
     class Meta:
         model = Group
-        fields = ['sport', 'name', 'start_date', 'end_date', 'training_days', 'trainers']
+        fields = [
+            'sport',
+            'name',
+            'start_date',
+            'end_date',
+            'training_days',
+            'registration_state',
+            'max_members',
+            'allow_combined_registration',
+            'trainers',
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -112,7 +123,6 @@ class AdminMembershipAddForm(forms.Form):
 
 
 class RegistrationForm(forms.Form):
-    sport = forms.ModelChoiceField(queryset=Sport.objects.all(), label='Sport')
     group = forms.ModelChoiceField(queryset=Group.objects.select_related('sport'), label='Skupina')
     attendance_option = forms.ModelChoiceField(
         queryset=AttendanceOption.objects.none(),
@@ -124,12 +134,8 @@ class RegistrationForm(forms.Form):
         required=False,
         label='Začátek docházky od měsíce',
     )
+    extra_memberships = forms.CharField(required=False, widget=forms.HiddenInput)
 
-    id_type = forms.ChoiceField(
-        choices=[('birth_number', 'Rodné číslo'), ('passport', 'Pas')],
-        widget=forms.RadioSelect,
-        label='Identifikace dítěte'
-    )
     birth_number = forms.CharField(required=False, label='Rodné číslo (včetně lomítka)')
     passport_number = forms.CharField(required=False, label='Číslo pasu')
 
@@ -145,6 +151,10 @@ class RegistrationForm(forms.Form):
     parent_city = forms.CharField(label='Město')
     parent_zip = forms.CharField(label='PSČ')
 
+    consent_vop = forms.BooleanField(required=True, label='Souhlasím s VOP')
+    consent_gdpr = forms.BooleanField(required=True, label='Souhlasím se zpracováním osobních údajů (GDPR)')
+    consent_health = forms.BooleanField(required=True, label='Potvrzuji vhodný zdravotní stav dítěte pro sportovní činnost')
+
     password1 = forms.CharField(label='Heslo', widget=forms.PasswordInput)
     password2 = forms.CharField(label='Heslo znovu', widget=forms.PasswordInput)
 
@@ -152,6 +162,14 @@ class RegistrationForm(forms.Form):
         super().__init__(*args, **kwargs)
         self._existing_parent = None
         self._existing_child = None
+        self._membership_payload = []
+        self.fields['group'].queryset = (
+            Group.objects
+            .select_related('sport')
+            .exclude(registration_state=Group.REG_DISABLED)
+            .order_by('sport__name', 'name')
+        )
+        self.fields['group'].label_from_instance = self._group_label
         self.fields['start_month'].choices = [('', '— dle aktuálního měsíce —')]
 
         if 'group' in self.data:
@@ -163,6 +181,7 @@ class RegistrationForm(forms.Form):
                     month_choices = [
                         (m.strftime('%Y-%m'), m.strftime('%m/%Y'))
                         for m in group_month_starts(group)
+                        if m >= date.today().replace(day=1)
                     ]
                     self.fields['start_month'].choices = [('', '— dle aktuálního měsíce —')] + month_choices
             except (ValueError, TypeError):
@@ -171,9 +190,18 @@ class RegistrationForm(forms.Form):
         else:
             self.fields['start_month'].choices = [('', '— nejdřív vyberte skupinu —')]
 
+    @staticmethod
+    def _group_label(group):
+        label = f"{group.sport.name} - {group.name}"
+        if group.max_members:
+            slots = group.free_slots
+            label += f" ({slots} volná místa)"
+        if group.registration_state == Group.REG_FULL:
+            label += " [OBSAZENO]"
+        return label
+
     def clean(self):
         cleaned = super().clean()
-        id_type = cleaned.get('id_type')
         birth_number = cleaned.get('birth_number')
         passport_number = cleaned.get('passport_number')
         password1 = cleaned.get('password1')
@@ -200,41 +228,97 @@ class RegistrationForm(forms.Form):
                         else:
                             self._existing_parent = parent
 
-        if id_type == 'birth_number':
-            if not birth_number:
-                self.add_error('birth_number', 'Zadejte rodné číslo.')
-            elif not BIRTH_NUMBER_RE.match(birth_number):
-                self.add_error('birth_number', 'Rodné číslo musí být ve formátu 123456/7890.')
-        else:
-            if not passport_number:
-                self.add_error('passport_number', 'Zadejte číslo pasu.')
+        if not birth_number and not passport_number:
+            self.add_error('birth_number', 'Zadejte rodné číslo, nebo vyplňte číslo pasu u cizince.')
+        if birth_number and not BIRTH_NUMBER_RE.match(birth_number):
+            self.add_error('birth_number', 'Rodné číslo musí být ve formátu 123456/7890.')
 
-        sport = cleaned.get('sport')
-        if group and sport and group.sport_id != sport.id:
-            self.add_error('group', 'Vybraná skupina nepatří do zvoleného sportu.')
-
+        memberships_payload = []
         attendance_option = cleaned.get('attendance_option')
-        if attendance_option and group and attendance_option.group_id != group.id:
-            self.add_error('attendance_option', 'Docházková varianta nepatří do vybrané skupiny.')
-
         start_month_raw = cleaned.get('start_month')
-        start_month_date = None
         if group:
-            allowed_months = group_month_starts(group)
-            allowed_values = {m.strftime('%Y-%m') for m in allowed_months}
-            if start_month_raw:
-                if start_month_raw not in allowed_values:
-                    self.add_error('start_month', 'Vyberte měsíc v rámci období skupiny.')
+            memberships_payload.append({
+                'group': group,
+                'attendance_option': attendance_option,
+                'start_month_raw': start_month_raw,
+            })
+
+        extra_raw = (cleaned.get('extra_memberships') or '').strip()
+        if extra_raw:
+            try:
+                parsed = json.loads(extra_raw)
+            except Exception:
+                parsed = []
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        extra_group = Group.objects.get(id=int(item.get('group_id')))
+                    except Exception:
+                        continue
+                    option_obj = None
+                    option_raw = item.get('attendance_option_id')
+                    if option_raw:
+                        try:
+                            option_obj = AttendanceOption.objects.get(id=int(option_raw), group=extra_group)
+                        except Exception:
+                            option_obj = None
+                    memberships_payload.append({
+                        'group': extra_group,
+                        'attendance_option': option_obj,
+                        'start_month_raw': (item.get('start_month') or '').strip(),
+                    })
+
+        unique_groups = {}
+        for payload in memberships_payload:
+            unique_groups[payload['group'].id] = payload
+        memberships_payload = list(unique_groups.values())
+        if not memberships_payload:
+            self.add_error('group', 'Vyberte alespoň jednu skupinu.')
+
+        for payload in memberships_payload:
+            payload_group = payload['group']
+            payload_option = payload.get('attendance_option')
+            if payload_group.registration_state != Group.REG_ENABLED:
+                if payload_group.registration_state == Group.REG_FULL:
+                    self.add_error('group', f"Skupina {payload_group} je obsazená.")
                 else:
-                    start_month_date = date.fromisoformat(f"{start_month_raw}-01")
+                    self.add_error('group', f"Skupina {payload_group} není otevřená pro registraci.")
+            if payload_group.max_members and payload_group.active_members_count >= payload_group.max_members:
+                self.add_error('group', f"Skupina {payload_group} je naplněná.")
+
+            has_options = AttendanceOption.objects.filter(group=payload_group).exists()
+            if has_options and not payload_option:
+                self.add_error('attendance_option', f"Vyberte docházkovou variantu pro skupinu {payload_group}.")
+            if payload_option and payload_option.group_id != payload_group.id:
+                self.add_error('attendance_option', f"Varianta nepatří do skupiny {payload_group}.")
+
+        if len(memberships_payload) > 1:
+            for payload in memberships_payload:
+                if not payload['group'].allow_combined_registration:
+                    self.add_error('group', f"Skupina {payload['group']} nepovoluje kombinaci s další skupinou.")
+                    break
+
+        for payload in memberships_payload:
+            payload_group = payload['group']
+            payload_start_raw = payload.get('start_month_raw')
+            start_month_date = None
+            allowed_months = [m for m in group_month_starts(payload_group) if m >= date.today().replace(day=1)]
+            allowed_values = {m.strftime('%Y-%m') for m in allowed_months}
+            if payload_start_raw:
+                if payload_start_raw not in allowed_values:
+                    self.add_error('start_month', f"Neplatný měsíc pro skupinu {payload_group}.")
+                else:
+                    start_month_date = date.fromisoformat(f"{payload_start_raw}-01")
             else:
-                start_month_date = normalize_start_month(group, fallback_date=date.today())
-        cleaned['start_month_date'] = start_month_date
+                start_month_date = normalize_start_month(payload_group, fallback_date=date.today())
+            payload['start_month_date'] = start_month_date
 
         existing_child = None
-        if id_type == 'birth_number' and birth_number:
+        if birth_number:
             existing_child = Child.objects.filter(birth_number=birth_number).first()
-        if id_type == 'passport' and passport_number:
+        if not existing_child and passport_number:
             existing_child = Child.objects.filter(passport_number=passport_number).first()
 
         if existing_child:
@@ -243,8 +327,12 @@ class RegistrationForm(forms.Form):
                 self.add_error('parent_email', 'Toto dítě je již registrováno pod jiným rodičem.')
             elif not self._existing_parent:
                 self.add_error('parent_email', 'Toto dítě je již registrováno. Použijte email rodiče, pod kterým je dítě vedeno, nebo kontaktujte administrátora.')
-            if group and Membership.objects.filter(child=existing_child, group=group).exists():
-                self.add_error('group', 'Dítě je již v této skupině. Vyberte jinou skupinu.')
+            for payload in memberships_payload:
+                if Membership.objects.filter(child=existing_child, group=payload['group']).exists():
+                    self.add_error('group', f"Dítě je již ve skupině {payload['group']}.")
+
+        cleaned['membership_payload'] = memberships_payload
+        self._membership_payload = memberships_payload
 
         return cleaned
 
@@ -289,26 +377,47 @@ class RegistrationForm(forms.Form):
                 )
                 created_child = True
 
-            membership, membership_created = Membership.objects.get_or_create(
-                child=child,
-                group=data['group'],
-                defaults={
-                    'attendance_option': data['attendance_option'],
-                    'billing_start_month': data.get('start_month_date'),
-                },
-            )
-            if not membership_created:
-                needs_save = False
-                if data.get('attendance_option') and membership.attendance_option_id != data['attendance_option'].id:
-                    membership.attendance_option = data['attendance_option']
-                    needs_save = True
-                if data.get('start_month_date') and membership.billing_start_month != data['start_month_date']:
-                    membership.billing_start_month = data['start_month_date']
-                    needs_save = True
-                if needs_save:
-                    membership.save()
+            created_count = 0
+            first_membership = None
+            for payload in self._membership_payload:
+                membership, membership_created = Membership.objects.get_or_create(
+                    child=child,
+                    group=payload['group'],
+                    defaults={
+                        'attendance_option': payload.get('attendance_option'),
+                        'billing_start_month': payload.get('start_month_date'),
+                    },
+                )
+                if not first_membership:
+                    first_membership = membership
+                if not membership_created:
+                    needs_save = False
+                    option_obj = payload.get('attendance_option')
+                    if option_obj and membership.attendance_option_id != option_obj.id:
+                        membership.attendance_option = option_obj
+                        needs_save = True
+                    if payload.get('start_month_date') and membership.billing_start_month != payload['start_month_date']:
+                        membership.billing_start_month = payload['start_month_date']
+                        needs_save = True
+                    if not membership.active:
+                        membership.active = True
+                        needs_save = True
+                    if needs_save:
+                        membership.save()
+                else:
+                    created_count += 1
 
-        return parent, child, membership, created_parent, created_child, membership_created
+            ChildConsent.objects.create(
+                child=child,
+                parent=parent,
+                consent_vop=bool(data.get('consent_vop')),
+                consent_gdpr=bool(data.get('consent_gdpr')),
+                consent_health=bool(data.get('consent_health')),
+                source=ChildConsent.SOURCE_REGISTRATION,
+            )
+
+        membership_created = created_count > 0
+        return parent, child, first_membership, created_parent, created_child, membership_created
 
 
 class ChildEditForm(forms.ModelForm):
@@ -339,3 +448,42 @@ class ReceivedPaymentForm(forms.ModelForm):
             'sender_name': 'Odesílatel',
             'note': 'Poznámka',
         }
+
+
+class ClubDocumentForm(forms.ModelForm):
+    class Meta:
+        model = ClubDocument
+        fields = ['title', 'file']
+        labels = {
+            'title': 'Název dokumentu',
+            'file': 'Soubor (PDF/JPG/PNG)',
+        }
+
+
+class DataCompletionLookupForm(forms.Form):
+    last_name = forms.CharField(required=False, label='Příjmení dítěte')
+    first_name = forms.CharField(required=False, label='Jméno dítěte')
+    variable_symbol = forms.CharField(required=False, label='VS dítěte')
+
+
+class DataCompletionUpdateForm(forms.Form):
+    parent_email = forms.EmailField(label='E-mail rodiče')
+    parent_phone = forms.CharField(label='Telefon rodiče')
+    parent_street = forms.CharField(label='Ulice a číslo domu')
+    parent_city = forms.CharField(label='Město')
+    parent_zip = forms.CharField(label='PSČ')
+    child_birth_number = forms.CharField(required=False, label='Rodné číslo')
+    child_passport_number = forms.CharField(required=False, label='Číslo pasu')
+    consent_vop = forms.BooleanField(required=True, label='Souhlas VOP')
+    consent_gdpr = forms.BooleanField(required=True, label='Souhlas GDPR')
+    consent_health = forms.BooleanField(required=True, label='Souhlas zdravotní stav')
+
+    def clean(self):
+        cleaned = super().clean()
+        birth_number = (cleaned.get('child_birth_number') or '').strip()
+        passport_number = (cleaned.get('child_passport_number') or '').strip()
+        if not birth_number and not passport_number:
+            raise ValidationError('Vyplňte rodné číslo nebo číslo pasu.')
+        if birth_number and not BIRTH_NUMBER_RE.match(birth_number):
+            self.add_error('child_birth_number', 'Rodné číslo musí být ve formátu 123456/7890.')
+        return cleaned

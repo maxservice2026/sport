@@ -27,7 +27,7 @@
 
 <div class="card">
   <h2>Karta dítěte: {{ child.first_name }} {{ child.last_name }}</h2>
-  <p class="muted">Unikátní ID: {{ child.unique_id }} | VS: {{ child.variable_symbol }}</p>
+  <p class="muted">Unikátní ID: {{ child.variable_symbol }} | VS: {{ child.variable_symbol }}</p>
 
   <h3>Členství</h3>
   {% if memberships %}
@@ -69,6 +69,83 @@
   {% else %}
     <p class="muted">Bez otevřených prodejních položek.</p>
   {% endif %}
+
+  <h3>Docházka dítěte</h3>
+  {% if attendance_rows %}
+    <table class="charge-table">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Skupina</th>
+          <th>Stav</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in attendance_rows %}
+          <tr>
+            <td>{{ row.session.date|date:"d.m.Y" }}</td>
+            <td>{{ row.session.group.sport.name }} - {{ row.session.group.name }}</td>
+            <td>
+              {% if row.present %}
+                <span class="charge-paid">Přítomen</span>
+              {% else %}
+                <span class="charge-open">Nepřítomen</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Docházka zatím není zadaná.</p>
+  {% endif %}
+
+  <h3>Ekonomika ID</h3>
+  {% if finance_entries %}
+    <table class="charge-table">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Událost</th>
+          <th>Částka</th>
+          <th>Stav</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in finance_entries %}
+          <tr>
+            <td>{{ entry.occurred_on|date:"d.m.Y" }}</td>
+            <td>{{ entry.title }}{% if entry.note %}<div class="muted">{{ entry.note }}</div>{% endif %}</td>
+            <td>{{ entry.amount_czk }} Kč</td>
+            <td>{{ entry.get_status_display }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Bez ekonomických záznamů.</p>
+  {% endif %}
+
+  <h3>QR platba</h3>
+  {% if due_total > 0 %}
+    <p class="muted">Celkem k úhradě: <strong>{{ due_total }} Kč</strong> | VS: <strong>{{ child.variable_symbol }}</strong></p>
+    <img
+      alt="QR platba"
+      src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={{ 'SPD*1.0*ACC:CZ210300000000290625104*CC:CZK*AM:'|add:due_total|add:'*X-VS:'|add:child.variable_symbol|urlencode }}"
+      style="max-width:240px;border:1px solid #d9e0e8;border-radius:8px;padding:4px;background:#fff;"
+    >
+  {% else %}
+    <p class="muted">Není evidována otevřená platba.</p>
+  {% endif %}
+
+  <h3>Dokumenty</h3>
+  <ul>
+    {% for doc in documents %}
+      <li><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a></li>
+    {% empty %}
+      <li class="muted">Žádné dokumenty.</li>
+    {% endfor %}
+  </ul>
 
   <h3>Upravit údaje dítěte</h3>
   <form method="post">

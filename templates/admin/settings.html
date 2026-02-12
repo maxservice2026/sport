@@ -1,0 +1,66 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<section class="page-hero">
+  <h2>Nastavení</h2>
+  <p>Barvy aplikace, souhlasy formulářů a e-mail plateb.</p>
+</section>
+
+<section class="page-panel">
+  <form method="post">
+    {% csrf_token %}
+
+    <h3>Design (3 barvy)</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
+      <div>
+        <label>{{ form.primary_color.label }}</label>
+        {{ form.primary_color }}
+      </div>
+      <div>
+        <label>{{ form.secondary_color.label }}</label>
+        {{ form.secondary_color }}
+      </div>
+      <div>
+        <label>{{ form.accent_color.label }}</label>
+        {{ form.accent_color }}
+      </div>
+    </div>
+
+    <h3 style="margin-top:14px;">Souhlasy veřejné registrace</h3>
+    <div class="form-row">
+      <label>{{ form.consent_vop_text.label }}</label>
+      {{ form.consent_vop_text }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.consent_gdpr_text.label }}</label>
+      {{ form.consent_gdpr_text }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.consent_health_text.label }}</label>
+      {{ form.consent_health_text }}
+    </div>
+
+    <h3 style="margin-top:14px;">E-mail platby</h3>
+    <div class="form-row">
+      <label>{{ form.payment_email_mode.label }}</label>
+      {{ form.payment_email_mode }}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+      <div><label>{{ form.payment_imap_host.label }}</label>{{ form.payment_imap_host }}</div>
+      <div><label>{{ form.payment_imap_port.label }}</label>{{ form.payment_imap_port }}</div>
+      <div><label>{{ form.payment_imap_user.label }}</label>{{ form.payment_imap_user }}</div>
+      <div><label>{{ form.payment_imap_password.label }}</label>{{ form.payment_imap_password }}</div>
+      <div><label>{{ form.payment_smtp_host.label }}</label>{{ form.payment_smtp_host }}</div>
+      <div><label>{{ form.payment_smtp_port.label }}</label>{{ form.payment_smtp_port }}</div>
+      <div><label>{{ form.payment_smtp_user.label }}</label>{{ form.payment_smtp_user }}</div>
+      <div><label>{{ form.payment_smtp_password.label }}</label>{{ form.payment_smtp_password }}</div>
+    </div>
+    <div class="form-row" style="margin-top:8px;">
+      <label>{{ form.payment_forward_email.label }}</label>
+      {{ form.payment_forward_email }}
+    </div>
+
+    <button class="btn" type="submit">Uložit nastavení</button>
+  </form>
+</section>
+{% endblock %}

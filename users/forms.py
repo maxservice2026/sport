@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm, UserChangeForm
 from django.core.exceptions import ValidationError
 from clubs.models import Group
-from .models import User
+from .models import User, AppSettings
 
 
 class EmailAuthenticationForm(AuthenticationForm):
@@ -113,3 +113,36 @@ class TrainerUpdateForm(forms.ModelForm):
             if groups is not None:
                 user.assigned_groups.set(groups)
         return user
+
+
+class AppSettingsForm(forms.ModelForm):
+    class Meta:
+        model = AppSettings
+        fields = [
+            'primary_color',
+            'secondary_color',
+            'accent_color',
+            'consent_vop_text',
+            'consent_gdpr_text',
+            'consent_health_text',
+            'payment_email_mode',
+            'payment_imap_host',
+            'payment_imap_port',
+            'payment_imap_user',
+            'payment_imap_password',
+            'payment_smtp_host',
+            'payment_smtp_port',
+            'payment_smtp_user',
+            'payment_smtp_password',
+            'payment_forward_email',
+        ]
+        widgets = {
+            'primary_color': forms.TextInput(attrs={'type': 'color'}),
+            'secondary_color': forms.TextInput(attrs={'type': 'color'}),
+            'accent_color': forms.TextInput(attrs={'type': 'color'}),
+            'consent_vop_text': forms.Textarea(attrs={'rows': 3}),
+            'consent_gdpr_text': forms.Textarea(attrs={'rows': 3}),
+            'consent_health_text': forms.Textarea(attrs={'rows': 3}),
+            'payment_imap_password': forms.PasswordInput(render_value=True),
+            'payment_smtp_password': forms.PasswordInput(render_value=True),
+        }

@@ -4,7 +4,7 @@
 {% block admin_content %}
 <style>
   .dash-hero {
-    background: linear-gradient(135deg, #10324f 0%, #1e5f8f 60%, #2d84be 100%);
+    background: linear-gradient(135deg, var(--secondary) 0%, var(--accent) 60%, var(--accent) 100%);
     color: #fff;
     border-radius: 14px;
     padding: 20px;
@@ -134,10 +134,13 @@
     <div class="dash-actions">
       <a class="btn" href="/admin/groups/new/">+ Nová skupina</a>
       <a class="btn" href="/admin/trainers/new/">+ Nový trenér</a>
+      <a class="btn" href="/admin/groups/">Skupiny</a>
       <a class="btn" href="/admin/attendance/">Docházka</a>
       <a class="btn" href="/admin/economics/">Ekonomika</a>
       <a class="btn secondary" href="/admin/children/">Seznam dětí</a>
       <a class="btn secondary" href="/admin/contributions/">Příspěvky</a>
+      <a class="btn secondary" href="/admin/documents/">Dokumenty</a>
+      <a class="btn secondary" href="/admin/settings/">Nastavení</a>
     </div>
   </article>
 </section>

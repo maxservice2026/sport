@@ -55,7 +55,7 @@
     box-sizing: border-box;
   }
   .page-hero {
-    background: linear-gradient(135deg, #10324f 0%, #1e5f8f 60%, #2d84be 100%);
+    background: linear-gradient(135deg, var(--secondary) 0%, var(--accent) 60%, var(--accent) 100%);
     color: #fff;
     border-radius: 14px;
     padding: 16px 18px;
@@ -118,12 +118,17 @@
     <h3>Administrace</h3>
     <div class="admin-quick-links">
       <a class="nav-link" href="/admin/">Přehled</a>
+      <a class="nav-link" href="/admin/groups/">Skupiny</a>
       <a class="nav-link" href="/admin/children/">Děti</a>
       <a class="nav-link" href="/admin/trainers/">Trenéři</a>
       <a class="nav-link" href="/admin/attendance/">Docházka</a>
       <a class="nav-link" href="/admin/economics/">Ekonomika</a>
       <a class="nav-link" href="/admin/contributions/">Příspěvky</a>
-      <a class="nav-link" href="/django-admin/">Django Admin</a>
+      <a class="nav-link" href="/admin/documents/">Dokumenty</a>
+      <a class="nav-link" href="/admin/settings/">Nastavení</a>
+      {% if can_use_django_admin %}
+        <a class="nav-link" href="/django-admin/">Django Admin</a>
+      {% endif %}
     </div>
 
     <div class="admin-group-jump">
@@ -139,9 +144,7 @@
           </optgroup>
         {% endfor %}
       </select>
-      <div style="margin-top:8px;">
-        <a class="btn" href="/admin/groups/new/">+ Nová skupina</a>
-      </div>
+      <div style="margin-top:8px;"><a class="btn" href="/admin/groups/new/">+ Nová skupina</a></div>
     </div>
   </aside>
 

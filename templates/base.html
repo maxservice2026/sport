@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SK MNÍŠECKO</title>
+  <title>Klubová Registrace</title>
   <style>
     :root {
       --bg: #f7f7f5;
       --text: #1a1a1a;
       --muted: #666;
-      --accent: #0b6bcb;
-      --danger: #d64545;
+      --accent: {{ app_settings.primary_color|default:'#1e5f8f' }};
+      --danger: {{ app_settings.accent_color|default:'#c62828' }};
+      --secondary: {{ app_settings.secondary_color|default:'#5f6570' }};
       --success: #2e8b57;
       --card: #fff;
     }
@@ -18,7 +19,7 @@
       margin: 0; font-family: "Segoe UI", Tahoma, sans-serif; background: var(--bg); color: var(--text);
     }
     header {
-      background: #111; color: #fff; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
+      background: linear-gradient(120deg, var(--accent), var(--secondary)); color: #fff; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
     }
     header a { color: #fff; text-decoration: none; margin-right: 12px; }
     main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
@@ -28,12 +29,15 @@
     .tile.red { background: var(--danger); }
     .tile.green { background: var(--success); }
     .btn { display: inline-block; padding: 8px 14px; border-radius: 6px; background: var(--accent); color: #fff; text-decoration: none; border: none; cursor: pointer; }
-    .btn.secondary { background: #444; }
+    .btn.secondary { background: var(--secondary); }
     .form-row { margin-bottom: 10px; }
     label { display: block; font-weight: 600; margin-bottom: 4px; }
     input, select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; }
     .muted { color: var(--muted); }
-    .flash { background: #e9f5ff; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; }
+    .flash { background: #e9f5ff; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #c8dfef; }
+    .flash.error { background: #ffe9e9; border-color: #f0bdbd; color: #9d1e1e; }
+    .flash.warning { background: #fff3e2; border-color: #f2dab0; color: #8a5a14; }
+    .flash.success { background: #e9f9ee; border-color: #bfe6ca; color: #1f6a35; }
 
     body.mobile-preview { background: #2a2f35; }
     .phone-preview {
@@ -64,7 +68,7 @@
     body.mobile-preview header { padding: 12px; }
     body.mobile-preview main { max-width: none; margin: 16px 0 0; padding: 0 12px 12px; }
     .mobile-mode-badge {
-      background: #26457b;
+      background: var(--accent);
       color: #fff;
       padding: 4px 8px;
       border-radius: 6px;
@@ -81,7 +85,7 @@
   {% endif %}
   <header>
     <div>
-      <a href="/">SK MNÍŠECKO</a>
+      <a href="/">Domů</a>
       <a href="/registrace/">Registrace</a>
     </div>
     <div>
@@ -100,7 +104,7 @@
   <main>
     {% if messages %}
       {% for message in messages %}
-        <div class="flash">{{ message }}</div>
+        <div class="flash{% if message.tags %} {{ message.tags }}{% endif %}">{{ message }}</div>
       {% endfor %}
     {% endif %}
     {% block content %}{% endblock %}

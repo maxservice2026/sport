@@ -1,10 +1,86 @@
 {% extends 'admin/base_admin.html' %}
 
 {% block admin_content %}
-<div class="card">
-  <h2>Skupiny</h2>
-  <p><a class="btn" href="/admin/groups/new/">Vytvořit skupinu</a></p>
+<style>
+  .sport-block { margin-bottom: 14px; }
+  .sport-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .group-tile {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: #fff;
+    border: 1px solid #e8edf2;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  }
+  .group-tile:hover { border-color: var(--accent); }
+  .group-tile h4 { margin: 0 0 8px; font-size: 20px; }
+  .group-tile .meta { color: #5f6570; font-size: 14px; }
+  .bulk-tools {
+    margin-top: 14px;
+    border-top: 1px solid #e8edf2;
+    padding-top: 12px;
+    display: grid;
+    gap: 8px;
+  }
+</style>
 
-  <p class="muted">Vyberte skupinu v levém panelu, nebo vytvořte novou.</p>
-</div>
+<section class="page-hero">
+  <h2>Skupiny</h2>
+  <p>Přehled skupin, počtů členů a průměrné docházky.</p>
+</section>
+
+<section class="page-panel">
+  <p><a class="btn" href="/admin/groups/new/">+ Vytvořit skupinu</a></p>
+
+  <form method="post">
+    {% csrf_token %}
+    {% for sport_name, items in groups_by_sport.items %}
+      <div class="sport-block">
+        <h3>{{ sport_name }}</h3>
+        <div class="sport-grid">
+          {% for item in items %}
+            <label class="group-tile">
+              <input type="checkbox" name="selected_groups" value="{{ item.group.id }}" style="float:right;">
+              <a href="/admin/groups/{{ item.group.id }}/" style="text-decoration:none;color:inherit;">
+                <h4>{{ item.group.name }}</h4>
+                <div class="meta">Členů: <strong>{{ item.members_count }}</strong></div>
+                <div class="meta">Průměrná docházka: <strong>{{ item.avg_attendance_percent }} %</strong></div>
+              </a>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    {% empty %}
+      <p class="muted">Žádné skupiny.</p>
+    {% endfor %}
+
+    <div class="bulk-tools">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+        <input type="hidden" name="action" value="archive_groups" id="groups-action">
+        <button class="btn secondary" type="submit" onclick="document.getElementById('groups-action').value='archive_groups'">Archivovat vybrané do CSV</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+        <div>
+          <label for="clone_suffix">Příznak nové skupiny</label>
+          <input id="clone_suffix" type="text" name="clone_suffix" placeholder="např. 2026/2">
+        </div>
+        <div>
+          <label for="clone_start_date">Začátek období</label>
+          <input id="clone_start_date" type="date" name="clone_start_date">
+        </div>
+        <div>
+          <label for="clone_end_date">Konec období</label>
+          <input id="clone_end_date" type="date" name="clone_end_date">
+        </div>
+        <button class="btn" type="submit" onclick="document.getElementById('groups-action').value='clone_groups'">Kopírovat vybrané skupiny do nového období</button>
+      </div>
+    </div>
+  </form>
+</section>
 {% endblock %}

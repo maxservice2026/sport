@@ -43,6 +43,7 @@ class TrainerAttendance(models.Model):
         verbose_name='Trenér',
     )
     present = models.BooleanField(default=True, verbose_name='Přítomen')
+    extra_access = models.BooleanField(default=False, verbose_name='Mimo přiřazenou skupinu')
     recorded_at = models.DateTimeField(default=timezone.now, verbose_name='Zaznamenáno')
 
     class Meta:

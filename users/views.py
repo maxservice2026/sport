@@ -7,12 +7,12 @@ from django.db.models import Count, Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 
-from .forms import EmailAuthenticationForm, ParentProfileForm, TrainerCreateForm, TrainerUpdateForm
-from .utils import role_required
-from clubs.models import Group, Sport, Child, Membership, TrainerGroup, SaleCharge, ReceivedPayment
+from .forms import EmailAuthenticationForm, ParentProfileForm, TrainerCreateForm, TrainerUpdateForm, AppSettingsForm
+from .utils import role_required, get_app_settings
+from clubs.models import Group, Sport, Child, Membership, TrainerGroup, SaleCharge, ReceivedPayment, ChildFinanceEntry, ClubDocument
 from clubs.payments import build_payment_counter, consume_matching_payment
 from clubs.pricing import normalize_start_month, payable_months_count, prorated_amount, month_start
-from users.models import User
+from users.models import User, EconomyExpense
 from clubs.forms import ChildEditForm
 from attendance.models import TrainerAttendance, Attendance
 
@@ -268,15 +268,14 @@ def admin_economics(request):
 
     if request.method == 'POST':
         action = request.POST.get('action') or 'trainer_update'
-        if action == 'sale_add':
-            child_id = request.POST.get('sale_child_id')
-            title = (request.POST.get('sale_title') or '').strip()
-            amount_raw = (request.POST.get('sale_amount_czk') or '').strip()
-            note = (request.POST.get('sale_note') or '').strip()
+        if action == 'expense_add':
+            title = (request.POST.get('expense_title') or '').strip()
+            amount_raw = (request.POST.get('expense_amount_czk') or '').strip().replace(',', '.')
+            note = (request.POST.get('expense_note') or '').strip()
+            expense_date_raw = (request.POST.get('expense_date') or '').strip()
 
-            child = get_object_or_404(Child, id=child_id)
             if not title:
-                messages.error(request, 'Vyplňte název prodejní položky.')
+                messages.error(request, 'Vyplňte název nákladové položky.')
                 return redirect(f"{reverse('admin_economics')}?period={period}")
             try:
                 amount = Decimal(amount_raw)
@@ -286,15 +285,20 @@ def admin_economics(request):
             if amount <= 0:
                 messages.error(request, 'Částka musí být větší než 0.')
                 return redirect(f"{reverse('admin_economics')}?period={period}")
+            try:
+                expense_date = date.fromisoformat(expense_date_raw) if expense_date_raw else date.today()
+            except ValueError:
+                messages.error(request, 'Neplatné datum nákladu.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
 
-            SaleCharge.objects.create(
-                child=child,
+            EconomyExpense.objects.create(
+                expense_date=expense_date,
                 title=title,
                 amount_czk=amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
                 note=note,
                 created_by=request.user,
             )
-            messages.success(request, 'Prodejní položka byla vytvořena.')
+            messages.success(request, 'Nákladová položka byla vytvořena.')
             return redirect(f"{reverse('admin_economics')}?period={period}")
 
         trainer_id = request.POST.get('trainer_id')
@@ -336,7 +340,11 @@ def admin_economics(request):
             attendance_count=Count(
                 'trainer_attendance_records',
                 filter=attendance_filter,
-            )
+            ),
+            attendance_extra_count=Count(
+                'trainer_attendance_records',
+                filter=attendance_filter & Q(trainer_attendance_records__extra_access=True),
+            ),
         )
         .order_by('last_name', 'first_name', 'email')
     )
@@ -362,6 +370,7 @@ def admin_economics(request):
                 'date': record.session.date,
                 'trainer_name': f"{record.trainer.first_name} {record.trainer.last_name}".strip() or record.trainer.email,
                 'group_name': f"{group.sport.name} - {group.name}",
+                'extra_access': record.extra_access,
             })
 
     rows = []
@@ -383,33 +392,19 @@ def admin_economics(request):
         rows.append({
             'trainer': trainer,
             'attendance_count': trainer.attendance_count,
+            'attendance_extra_count': trainer.attendance_extra_count,
             'gross': gross,
             'tax': tax,
             'net': net,
             'records': records_map.get(trainer.id, []),
         })
-
-    children = Child.objects.select_related('parent').order_by('last_name', 'first_name')
-    charges_for_match = list(
-        SaleCharge.objects
-        .select_related('child', 'child__parent')
-        .order_by('created_at', 'id')
+    expenses = list(
+        EconomyExpense.objects
+        .filter(expense_date__gte=range_start, expense_date__lte=range_end)
+        .select_related('created_by')
+        .order_by('-expense_date', '-id')
     )
-    payment_counter = build_payment_counter(ReceivedPayment.objects.all().only('variable_symbol', 'amount_czk'))
-    charge_paid_map = {}
-    for charge in charges_for_match:
-        charge_paid_map[charge.id] = consume_matching_payment(
-            payment_counter,
-            charge.child.variable_symbol,
-            charge.amount_czk,
-        )
-    sales = list(
-        SaleCharge.objects
-        .select_related('child', 'child__parent')
-        .order_by('-created_at', '-id')
-    )
-    for sale in sales:
-        sale.paid = charge_paid_map.get(sale.id, False)
+    total_expenses = sum((expense.amount_czk for expense in expenses), Decimal('0.00'))
 
     return render(request, 'admin/economics.html', {
         'rows': rows,
@@ -422,8 +417,23 @@ def admin_economics(request):
         'total_gross': total_gross,
         'total_tax': total_tax,
         'total_net': total_net,
-        'children': children,
-        'sales': sales,
+        'expenses': expenses,
+        'total_expenses': total_expenses,
+        'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
+        'admin_wide_content': True,
+    })
+
+
+@role_required('admin')
+def admin_settings(request):
+    settings_obj = get_app_settings()
+    form = AppSettingsForm(request.POST or None, instance=settings_obj)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Nastavení aplikace bylo uloženo.')
+        return redirect('admin_settings')
+    return render(request, 'admin/settings.html', {
+        'form': form,
         'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
         'admin_wide_content': True,
     })
@@ -431,8 +441,17 @@ def admin_economics(request):
 
 @role_required('trainer')
 def trainer_dashboard(request):
-    groups = Group.objects.filter(trainers__id=request.user.id).order_by('name')
-    return render(request, 'trainer/dashboard.html', {'groups': groups})
+    show_all = request.GET.get('all') == '1'
+    assigned_ids = set(Group.objects.filter(trainers__id=request.user.id).values_list('id', flat=True))
+    if show_all:
+        groups = Group.objects.select_related('sport').order_by('sport__name', 'name')
+    else:
+        groups = Group.objects.filter(id__in=assigned_ids).select_related('sport').order_by('sport__name', 'name')
+    return render(request, 'trainer/dashboard.html', {
+        'groups': groups,
+        'show_all': show_all,
+        'assigned_ids': assigned_ids,
+    })
 
 
 @role_required('parent')
@@ -464,9 +483,18 @@ def parent_dashboard(request):
 
     for child in children:
         child.charge_rows = child_charges.get(child.id, [])
+        child.finance_rows = list(
+            ChildFinanceEntry.objects
+            .filter(child=child)
+            .select_related('membership', 'membership__group')
+            .order_by('-occurred_on', '-id')[:30]
+        )
+        child.active_memberships = [m for m in child.memberships.all() if m.active]
+        child.ended_memberships = [m for m in child.memberships.all() if not m.active]
 
     return render(request, 'parent/dashboard.html', {
         'children': children,
+        'documents': ClubDocument.objects.order_by('-uploaded_at', '-id')[:30],
     })
 
 
@@ -501,9 +529,25 @@ def parent_child_detail(request, child_id):
             child.variable_symbol,
             charge.amount_czk,
         )
+    attendance_rows = list(
+        Attendance.objects
+        .filter(child=child)
+        .select_related('session__group', 'session__group__sport')
+        .order_by('-session__date', '-id')
+    )
+    open_debit = ChildFinanceEntry.objects.filter(
+        child=child,
+        direction=ChildFinanceEntry.DIR_DEBIT,
+        status=ChildFinanceEntry.STATUS_OPEN,
+    )
+    due_total = sum((entry.amount_czk for entry in open_debit), Decimal('0.00'))
     return render(request, 'parent/child_detail.html', {
         'child': child,
         'form': form,
         'memberships': memberships,
         'sale_charges': sale_charges,
+        'finance_entries': ChildFinanceEntry.objects.filter(child=child).select_related('membership', 'membership__group').order_by('-occurred_on', '-id'),
+        'attendance_rows': attendance_rows,
+        'due_total': due_total,
+        'documents': ClubDocument.objects.order_by('-uploaded_at', '-id')[:30],
     })

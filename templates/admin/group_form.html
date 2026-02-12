@@ -96,12 +96,32 @@
       <div class="training-days-inline">
         {% for checkbox in form.training_days %}
           <label class="training-day-item">
-            {{ checkbox.tag }}
             <span>{{ checkbox.choice_label }}</span>
+            {{ checkbox.tag }}
           </label>
         {% endfor %}
       </div>
       {{ form.training_days.errors }}
+    </div>
+
+    <div class="form-row">
+      <label>Stav veřejné registrace</label>
+      {{ form.registration_state }}
+      {{ form.registration_state.errors }}
+    </div>
+
+    <div class="form-row">
+      <label>Maximální počet členů (volitelné)</label>
+      {{ form.max_members }}
+      {{ form.max_members.errors }}
+    </div>
+
+    <div class="form-row">
+      <label style="display:flex;align-items:center;gap:8px;">
+        {{ form.allow_combined_registration }}
+        <span>Skupina se smí kombinovat s jinou skupinou při registraci</span>
+      </label>
+      {{ form.allow_combined_registration.errors }}
     </div>
 
     <div class="form-row">

@@ -31,6 +31,7 @@
           <th style="padding:8px;">Zařazení od</th>
           <th style="padding:8px;">Účtováno měsíců</th>
           <th style="padding:8px;">K úhradě (Kč)</th>
+          <th style="padding:8px;">Doklad</th>
           <th style="padding:8px;">Uhrazeno</th>
         </tr>
       </thead>
@@ -42,7 +43,14 @@
             <td style="padding:8px;">{{ row.child.variable_symbol }}</td>
             <td style="padding:8px;">{{ row.child.birth_number|default:"-" }}</td>
             <td style="padding:8px;">{{ row.group.sport.name }} - {{ row.group.name }}</td>
-            <td style="padding:8px;">{% if row.attendance_option %}{{ row.attendance_option.name }}{% else %}-{% endif %}</td>
+            <td style="padding:8px;">
+              <select name="attendance_option_id" form="membership-update-{{ row.id }}">
+                <option value="">— bez varianty —</option>
+                {% for opt in row.group_options %}
+                  <option value="{{ opt.id }}" {% if row.attendance_option and row.attendance_option.id == opt.id %}selected{% endif %}>{{ opt.name }}</option>
+                {% endfor %}
+              </select>
+            </td>
             <td style="padding:8px;">
               {% if row.attendance_option %}
                 {{ row.base_price }}
@@ -50,9 +58,33 @@
                 0
               {% endif %}
             </td>
-            <td style="padding:8px;">{{ row.effective_start|date:"m/Y" }}</td>
+            <td style="padding:8px;">
+              <select name="billing_start_month" form="membership-update-{{ row.id }}">
+                <option value="">— auto —</option>
+                {% for month_value in row.month_choices %}
+                  <option value="{{ month_value }}" {% if row.effective_start|date:"Y-m" == month_value %}selected{% endif %}>{{ month_value|slice:":4" }}/{{ month_value|slice:"5:7" }}</option>
+                {% endfor %}
+              </select>
+            </td>
             <td style="padding:8px;">{{ row.payable_months }}/{{ full_period_months }}</td>
-            <td style="padding:8px;"><strong>{{ row.due_amount }}</strong></td>
+            <td style="padding:8px;">
+              {% if row.open_proforma %}
+                <strong>{{ row.due_amount }}</strong>
+              {% else %}
+                <button class="btn secondary" style="padding:4px 8px;" type="submit" form="membership-proforma-{{ row.id }}">
+                  {{ row.due_amount }}
+                </button>
+              {% endif %}
+            </td>
+            <td style="padding:8px;">
+              {% if row.open_proforma %}
+                <span title="Záloha">{{ row.open_proforma.reference_code }}</span>
+              {% elif row.has_invoice %}
+                <span title="Faktura" style="color:#188b4a;font-weight:700;">Fakturováno</span>
+              {% else %}
+                <span class="muted">Nevystaveno</span>
+              {% endif %}
+            </td>
             <td style="padding:8px;">
               {% if row.paid %}
                 <span title="Uhrazeno" style="color:#188b4a;font-size:18px;line-height:1;">●</span>
@@ -63,7 +95,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="11" style="padding:10px;" class="muted">Žádné záznamy.</td>
+            <td colspan="12" style="padding:10px;" class="muted">Žádné záznamy.</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -71,13 +103,26 @@
       <tfoot>
         <tr style="border-top:2px solid #ddd;font-weight:700;">
           <td colspan="10" style="padding:10px;text-align:right;">Celkem k úhradě</td>
-          <td style="padding:10px;">{{ total_due }}</td>
+          <td colspan="2" style="padding:10px;">{{ total_due }}</td>
         </tr>
       </tfoot>
       {% endif %}
     </table>
   </div>
 </section>
+
+{% for row in rows %}
+  <form id="membership-update-{{ row.id }}" method="post" style="display:none;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="update_membership">
+    <input type="hidden" name="membership_id" value="{{ row.id }}">
+  </form>
+  <form id="membership-proforma-{{ row.id }}" method="post" style="display:none;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="generate_proforma">
+    <input type="hidden" name="membership_id" value="{{ row.id }}">
+  </form>
+{% endfor %}
 
 <script>
   (function () {
@@ -89,6 +134,14 @@
       timer = window.setTimeout(function () {
         input.form.submit();
       }, 350);
+    });
+
+    document.querySelectorAll('select[form^="membership-update-"]').forEach((el) => {
+      el.addEventListener('change', function () {
+        const formId = el.getAttribute('form');
+        const form = formId ? document.getElementById(formId) : null;
+        if (form) form.submit();
+      });
     });
   })();
 </script>

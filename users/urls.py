@@ -8,6 +8,7 @@ urlpatterns = [
     path('admin/trainers/new/', views.admin_trainer_create, name='admin_trainer_create'),
     path('admin/trainers/<int:user_id>/', views.admin_trainer_edit, name='admin_trainer_edit'),
     path('admin/economics/', views.admin_economics, name='admin_economics'),
+    path('admin/settings/', views.admin_settings, name='admin_settings'),
     path('trainer/', views.trainer_dashboard, name='trainer_dashboard'),
     path('parent/', views.parent_dashboard, name='parent_dashboard'),
     path('parent/profile/', views.parent_profile, name='parent_profile'),

@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  .result-list { margin-top: 10px; }
+  .result-item {
+    border: 1px solid #e2e6eb;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: #fff;
+  }
+</style>
+
+<div class="card">
+  <h2>Doplnění údajů dítěte</h2>
+  <p class="muted">Najděte dítě podle příjmení/jména/VS a doplňte chybějící údaje.</p>
+
+  <form method="get" style="display:grid;grid-template-columns:1fr 1fr 180px auto;gap:8px;align-items:end;">
+    <div>
+      <label>{{ lookup_form.last_name.label }}</label>
+      {{ lookup_form.last_name }}
+    </div>
+    <div>
+      <label>{{ lookup_form.first_name.label }}</label>
+      {{ lookup_form.first_name }}
+    </div>
+    <div>
+      <label>{{ lookup_form.variable_symbol.label }}</label>
+      {{ lookup_form.variable_symbol }}
+    </div>
+    <button class="btn" type="submit">Hledat</button>
+  </form>
+
+  {% if children %}
+    <div class="result-list">
+      {% for child in children %}
+        <article class="result-item">
+          <strong>{{ child.first_name }} {{ child.last_name }}</strong> — VS {{ child.variable_symbol }}
+          <div class="muted">
+            Ročník:
+            {% if child.birth_number %}
+              {{ child.birth_number|slice:":2" }}
+            {% else %}
+              -
+            {% endif %}
+            | Telefon rodiče: {{ child.parent.phone|default:"-" }}
+          </div>
+          <div class="muted">
+            Skupiny:
+            {% for membership in child.memberships.all %}
+              {{ membership.group.name }}{% if membership.attendance_option %} ({{ membership.attendance_option.name }}){% endif %}{% if not forloop.last %}, {% endif %}
+            {% empty %}
+              bez skupiny
+            {% endfor %}
+          </div>
+          <a class="btn secondary" href="/doplnit-udaje/?child_id={{ child.id }}">Doplnit údaje</a>
+        </article>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if selected_child and completion_form %}
+    <hr style="margin:16px 0;">
+    <h3>Doplnit údaje: {{ selected_child.first_name }} {{ selected_child.last_name }} (VS {{ selected_child.variable_symbol }})</h3>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="child_id" value="{{ selected_child.id }}">
+      {% for field in completion_form %}
+        <div class="form-row">
+          <label>{{ field.label }}</label>
+          {{ field }}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+      <button class="btn" type="submit">Odeslat doplnění</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

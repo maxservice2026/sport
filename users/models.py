@@ -74,3 +74,46 @@ class EconomyExpense(models.Model):
 
     def __str__(self):
         return f"{self.expense_date:%d.%m.%Y} - {self.title} ({self.amount_czk} Kč)"
+
+
+class AppSettings(models.Model):
+    PAYMENT_EMAIL_CUSTOM = 'custom'
+    PAYMENT_EMAIL_FORWARD = 'forward'
+    PAYMENT_EMAIL_MODE_CHOICES = [
+        (PAYMENT_EMAIL_CUSTOM, 'IMAP/SMTP'),
+        (PAYMENT_EMAIL_FORWARD, 'Přesměrování na klubový email'),
+    ]
+
+    primary_color = models.CharField(max_length=20, default='#1e5f8f', verbose_name='Primární barva')
+    secondary_color = models.CharField(max_length=20, default='#5f6570', verbose_name='Sekundární barva')
+    accent_color = models.CharField(max_length=20, default='#c62828', verbose_name='Akcent / varování')
+
+    consent_vop_text = models.TextField(blank=True, verbose_name='VOP')
+    consent_gdpr_text = models.TextField(blank=True, verbose_name='GDPR')
+    consent_health_text = models.TextField(blank=True, verbose_name='Prohlášení o zdravotním stavu')
+
+    payment_email_mode = models.CharField(
+        max_length=20,
+        choices=PAYMENT_EMAIL_MODE_CHOICES,
+        default=PAYMENT_EMAIL_CUSTOM,
+        verbose_name='Režim emailu plateb',
+    )
+    payment_imap_host = models.CharField(max_length=120, blank=True, verbose_name='IMAP host')
+    payment_imap_port = models.PositiveIntegerField(default=993, verbose_name='IMAP port')
+    payment_imap_user = models.CharField(max_length=160, blank=True, verbose_name='IMAP uživatel')
+    payment_imap_password = models.CharField(max_length=255, blank=True, verbose_name='IMAP heslo')
+    payment_smtp_host = models.CharField(max_length=120, blank=True, verbose_name='SMTP host')
+    payment_smtp_port = models.PositiveIntegerField(default=587, verbose_name='SMTP port')
+    payment_smtp_user = models.CharField(max_length=160, blank=True, verbose_name='SMTP uživatel')
+    payment_smtp_password = models.CharField(max_length=255, blank=True, verbose_name='SMTP heslo')
+    payment_forward_email = models.EmailField(blank=True, verbose_name='Přesměrovací email')
+
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Vytvořeno')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Aktualizováno')
+
+    class Meta:
+        verbose_name = 'Nastavení aplikace'
+        verbose_name_plural = 'Nastavení aplikace'
+
+    def __str__(self):
+        return 'Nastavení aplikace'

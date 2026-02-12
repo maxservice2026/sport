@@ -3,6 +3,8 @@ from django.contrib import messages
 from django.shortcuts import redirect
 from functools import wraps
 
+from .models import AppSettings
+
 
 def role_required(*roles):
     def decorator(view_func):
@@ -15,3 +17,10 @@ def role_required(*roles):
             return view_func(request, *args, **kwargs)
         return _wrapped
     return decorator
+
+
+def get_app_settings():
+    settings_obj = AppSettings.objects.order_by('id').first()
+    if settings_obj:
+        return settings_obj
+    return AppSettings.objects.create()

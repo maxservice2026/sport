@@ -57,7 +57,11 @@
 
 <div class="card">
   <h2>Docházka: {{ group }}</h2>
+  {% if extra_mode %}
+    <div class="flash warning">Mimořádný režim: zadáváte docházku ve skupině mimo vaše běžné přiřazení.</div>
+  {% endif %}
   <form id="attendance-filter" method="get" style="margin-bottom:12px;">
+    {% if extra_mode %}<input type="hidden" name="extra" value="1">{% endif %}
     <label>Datum</label>
     {% if session_options %}
       <select name="date">
@@ -77,6 +81,7 @@
         {% csrf_token %}
         <input type="hidden" name="trainer_id" value="{{ trainer_tile.trainer.id }}" />
         <input type="hidden" name="date" value="{{ session_date|date:'Y-m-d' }}" />
+        {% if extra_mode %}<input type="hidden" name="extra" value="1">{% endif %}
         <button type="submit" class="tile {% if trainer_tile.present %}green{% else %}red{% endif %}"
                 style="width:100%;border:none;outline:2px solid #1b3a57;"
                 {% if not can_mark %}disabled{% endif %}>
@@ -97,6 +102,7 @@
         {% csrf_token %}
         <input type="hidden" name="child_id" value="{{ tile.child.id }}" />
         <input type="hidden" name="date" value="{{ session_date|date:'Y-m-d' }}" />
+        {% if extra_mode %}<input type="hidden" name="extra" value="1">{% endif %}
         <button type="submit" class="tile attendance-tile {% if tile.present %}green{% else %}red{% endif %}"
                 data-parent-phone="{{ tile.parent_phone|default:'' }}"
                 style="width:100%;"

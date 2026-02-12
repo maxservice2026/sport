@@ -3,12 +3,22 @@
 {% block content %}
 <div class="card">
   <h2>Trenérský přehled</h2>
-  <p class="muted">Vyberte skupinu pro docházku.</p>
+  <p class="muted">Výchozí přehled zobrazuje vaše přiřazené skupiny.</p>
+  <p>
+    {% if show_all %}
+      <a class="btn secondary" href="/trainer/">Skrýt mimořádný přístup</a>
+    {% else %}
+      <a class="btn secondary" href="/trainer/?all=1">Mimořádný přístup k ostatním skupinám</a>
+    {% endif %}
+  </p>
   <ul>
     {% for group in groups %}
       <li>
         <strong>{{ group }}</strong>
-        <a class="btn" href="/trainer/group/{{ group.id }}/attendance/">Docházka</a>
+        <a class="btn" href="/trainer/group/{{ group.id }}/attendance/{% if show_all and group.id not in assigned_ids %}?extra=1{% endif %}">Docházka</a>
+        {% if show_all and group.id not in assigned_ids %}
+          <span style="color:#9f1d1d;font-weight:700;">mimo přiřazení</span>
+        {% endif %}
       </li>
     {% empty %}
       <li class="muted">Nemáte přiřazené skupiny.</li>

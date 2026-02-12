@@ -43,18 +43,20 @@
 </section>
 
 <section class="page-panel">
-  <form id="children-filter" method="get" style="margin:12px 0; display:flex; gap:8px; flex-wrap:wrap;">
+  <form id="children-filter" method="get" style="margin:12px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:end;">
     <input type="text" name="q" placeholder="Hledat jméno, VS nebo skupinu" value="{{ query }}" style="max-width:260px;">
-    <select name="group">
-      <option value="">— všechny skupiny —</option>
-      {% for group in groups %}
-        <option value="{{ group.id }}" {% if group_filter|stringformat:"s" == group.id|stringformat:"s" %}selected{% endif %}>
-          {{ group.sport.name }} – {{ group.name }}
-        </option>
-      {% endfor %}
-    </select>
-    <a class="btn" href="/admin/children/export.xls?q={{ query|urlencode }}&group={{ group_filter|urlencode }}">Export XLS</a>
-    {% if query or group_filter %}
+    <div>
+      <label for="children-groups">Skupiny (můžete vybrat více)</label>
+      <select id="children-groups" name="groups" multiple size="6" style="min-width:260px;">
+        {% for group in groups %}
+          <option value="{{ group.id }}" {% if group.id|stringformat:"s" in group_filters %}selected{% endif %}>
+            {{ group.sport.name }} – {{ group.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <a class="btn" href="/admin/children/export.xls?q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Export XLS</a>
+    {% if query or group_filters %}
       <a class="btn secondary" href="/admin/children/">Zrušit filtr</a>
     {% endif %}
   </form>
@@ -109,7 +111,7 @@
     const form = document.getElementById('children-filter');
     if (!form) return;
     const searchInput = form.querySelector('input[name="q"]');
-    const groupSelect = form.querySelector('select[name="group"]');
+    const groupSelect = form.querySelector('select[name="groups"]');
     if (searchInput) {
       let timer = null;
       searchInput.addEventListener('input', function () {

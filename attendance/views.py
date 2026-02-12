@@ -216,9 +216,15 @@ def _attendance_context(request, group, requested_date, max_date=None, trainer_f
 
 @role_required('trainer')
 def trainer_attendance(request, group_id):
-    group = get_object_or_404(Group, id=group_id, trainers=request.user)
+    allow_extra = request.GET.get('extra') == '1' or request.POST.get('extra') == '1'
+    group = get_object_or_404(Group, id=group_id)
+    is_assigned = group.trainers.filter(id=request.user.id).exists()
+    if not is_assigned and not allow_extra:
+        messages.error(request, 'Tato skupina není ve vašem přiřazení. Použijte mimořádný vstup.')
+        return redirect('trainer_dashboard')
     requested = request.GET.get('date') or request.POST.get('date')
     requested = date.fromisoformat(requested) if requested else None
+    extra_suffix = '&extra=1' if not is_assigned else ''
 
     session_date, session_options, can_mark, session, tiles, trainer_tiles = _attendance_context(
         request,
@@ -234,17 +240,19 @@ def trainer_attendance(request, group_id):
 
     if request.method == 'POST':
         if not can_mark or not session:
-            return redirect(request.path + f"?date={session_date}")
+            return redirect(request.path + f"?date={session_date}{extra_suffix}")
         trainer_id = request.POST.get('trainer_id')
         if trainer_id:
             trainer_record, created = TrainerAttendance.objects.get_or_create(
                 session=session,
                 trainer_id=request.user.id,
+                defaults={'extra_access': not is_assigned},
             )
             if not created:
                 trainer_record.present = not trainer_record.present
-                trainer_record.save(update_fields=['present', 'recorded_at'])
-            return redirect(request.path + f"?date={session_date}")
+                trainer_record.extra_access = not is_assigned
+                trainer_record.save(update_fields=['present', 'extra_access', 'recorded_at'])
+            return redirect(request.path + f"?date={session_date}{extra_suffix}")
 
         child_id = request.POST.get('child_id')
         if child_id:
@@ -253,7 +261,7 @@ def trainer_attendance(request, group_id):
             if not created:
                 record.present = not record.present
                 record.save(update_fields=['present', 'recorded_at'])
-        return redirect(request.path + f"?date={session_date}")
+        return redirect(request.path + f"?date={session_date}{extra_suffix}")
 
     return render(request, 'trainer/attendance.html', {
         'group': group,
@@ -262,6 +270,7 @@ def trainer_attendance(request, group_id):
         'can_mark': can_mark,
         'tiles': tiles,
         'trainer_tiles': trainer_tiles,
+        'extra_mode': not is_assigned,
     })
 
 

@@ -60,10 +60,13 @@
           <strong>{{ child.first_name }} {{ child.last_name }}</strong>
           <div class="muted">VS: {{ child.variable_symbol }} | ID: {% if child.birth_number %}{{ child.birth_number }}{% else %}{{ child.passport_number }}{% endif %}</div>
           <div style="margin-top:6px;">
-            {% for membership in child.memberships.all %}
+            {% for membership in child.active_memberships %}
               <div class="membership-item">Skupina: {{ membership.group }}{% if membership.attendance_option %}, varianta: {{ membership.attendance_option.name }}{% endif %}</div>
             {% empty %}
               <div class="muted">Dítě zatím nemá aktivní skupinu.</div>
+            {% endfor %}
+            {% for membership in child.ended_memberships %}
+              <div class="membership-item" style="color:#8b1e1e;">Ukončeno: {{ membership.group }}</div>
             {% endfor %}
           </div>
 
@@ -97,6 +100,32 @@
             <div class="muted" style="margin-top:6px;">Bez otevřených prodejních položek.</div>
           {% endif %}
 
+          <div style="margin-top:10px;"><strong>Ekonomika ID</strong></div>
+          {% if child.finance_rows %}
+            <table class="charge-table">
+              <thead>
+                <tr>
+                  <th>Datum</th>
+                  <th>Událost</th>
+                  <th>Částka</th>
+                  <th>Stav</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in child.finance_rows %}
+                  <tr>
+                    <td>{{ row.occurred_on|date:"d.m.Y" }}</td>
+                    <td>{{ row.title }}</td>
+                    <td>{{ row.amount_czk }} Kč</td>
+                    <td>{{ row.get_status_display }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="muted" style="margin-top:6px;">Bez ekonomických záznamů.</div>
+          {% endif %}
+
           <div style="margin-top:10px;"><a class="btn secondary" href="/parent/child/{{ child.id }}/">Karta dítěte</a></div>
         </section>
       {% endfor %}
@@ -104,5 +133,14 @@
   {% else %}
     <p class="muted">Zatím nemáte registrované dítě.</p>
   {% endif %}
+
+  <h3 style="margin-top:14px;">Dokumenty ke stažení</h3>
+  <ul>
+    {% for doc in documents %}
+      <li><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a></li>
+    {% empty %}
+      <li class="muted">Dokumenty zatím nejsou nahrané.</li>
+    {% endfor %}
+  </ul>
 </div>
 {% endblock %}

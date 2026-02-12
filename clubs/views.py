@@ -1,11 +1,12 @@
 import csv
 from datetime import date, timedelta, datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib import messages
 from django.contrib.auth import login
 from django.db import transaction
 from django.forms import inlineformset_factory
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
 from django.db.models import Q, Count, IntegerField, Prefetch
 from django.db.models.functions import Cast
 from django.shortcuts import render, redirect, get_object_or_404
@@ -13,11 +14,32 @@ from django.urls import reverse
 from django.utils import timezone
 
 from users.utils import role_required
-from .forms import RegistrationForm, GroupAdminForm, AttendanceOptionForm, ChildEditForm, AdminMembershipAddForm, ReceivedPaymentForm
-from .models import Group, AttendanceOption, Membership, Child, ReceivedPayment
+from .forms import (
+    RegistrationForm,
+    GroupAdminForm,
+    AttendanceOptionForm,
+    ChildEditForm,
+    AdminMembershipAddForm,
+    ReceivedPaymentForm,
+    ClubDocumentForm,
+    DataCompletionLookupForm,
+    DataCompletionUpdateForm,
+)
+from .models import (
+    Group,
+    AttendanceOption,
+    Membership,
+    Child,
+    ReceivedPayment,
+    ChildArchiveLog,
+    ClubDocument,
+    ChildFinanceEntry,
+    ChildConsent,
+)
 from .pricing import FULL_PERIOD_MONTHS, group_month_starts, month_start, normalize_start_month, payable_months_count, prorated_amount
 from .payments import build_payment_counter, consume_matching_payment
 from attendance.models import Attendance
+from users.utils import get_app_settings
 
 
 DAY_TO_WEEKDAY = {
@@ -31,15 +53,156 @@ DAY_TO_WEEKDAY = {
 }
 
 
+def _allowed_start_months(group):
+    current_month = date.today().replace(day=1)
+    return [m for m in group_month_starts(group) if m >= current_month]
+
+
+def _next_reference(prefix):
+    stamp = timezone.localtime().strftime('%Y%m%d%H%M%S')
+    return f"{prefix}-{stamp}"
+
+
+def _create_finance_entry(
+    *,
+    child,
+    membership=None,
+    event_type=ChildFinanceEntry.TYPE_INFO,
+    direction=ChildFinanceEntry.DIR_DEBIT,
+    status=ChildFinanceEntry.STATUS_OPEN,
+    title='',
+    amount=Decimal('0.00'),
+    variable_symbol='',
+    note='',
+    created_by=None,
+    reference='',
+):
+    return ChildFinanceEntry.objects.create(
+        child=child,
+        membership=membership,
+        event_type=event_type,
+        direction=direction,
+        status=status,
+        title=title,
+        amount_czk=Decimal(amount).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+        variable_symbol=variable_symbol or child.variable_symbol,
+        note=note,
+        created_by=created_by,
+        reference_code=reference,
+        occurred_on=timezone.localdate(),
+    )
+
+
+def _issue_membership_proforma(membership, *, created_by=None):
+    base_price = membership.attendance_option.price_czk if membership.attendance_option else Decimal('0.00')
+    selected_start = membership.billing_start_month
+    if not selected_start and membership.registered_at:
+        selected_start = month_start(membership.registered_at.date())
+    effective_start = normalize_start_month(
+        membership.group,
+        selected_start_month=selected_start,
+        fallback_date=date.today(),
+    )
+    payable_months = payable_months_count(
+        membership.group,
+        selected_start_month=effective_start,
+        fallback_date=date.today(),
+    )
+    due_amount = prorated_amount(base_price, payable_months)
+    if due_amount <= 0:
+        return None
+
+    existing_open = ChildFinanceEntry.objects.filter(
+        membership=membership,
+        event_type=ChildFinanceEntry.TYPE_PROFORMA,
+        status=ChildFinanceEntry.STATUS_OPEN,
+    ).first()
+    if existing_open:
+        return existing_open
+
+    title = f"Záloha: {membership.group.sport.name} - {membership.group.name} ({payable_months}/{FULL_PERIOD_MONTHS} měs.)"
+    note = f"Varianta: {membership.attendance_option.name if membership.attendance_option else '-'} | Od: {effective_start:%m/%Y}"
+    return _create_finance_entry(
+        child=membership.child,
+        membership=membership,
+        event_type=ChildFinanceEntry.TYPE_PROFORMA,
+        direction=ChildFinanceEntry.DIR_DEBIT,
+        status=ChildFinanceEntry.STATUS_OPEN,
+        title=title,
+        amount=due_amount,
+        variable_symbol=membership.child.variable_symbol,
+        note=note,
+        created_by=created_by,
+        reference=_next_reference('ZAL'),
+    )
+
+
+def _match_payment_to_open_proforma(payment, *, created_by=None):
+    open_entries = (
+        ChildFinanceEntry.objects
+        .filter(
+            event_type=ChildFinanceEntry.TYPE_PROFORMA,
+            status=ChildFinanceEntry.STATUS_OPEN,
+            variable_symbol=str(payment.variable_symbol),
+            amount_czk=payment.amount_czk,
+        )
+        .order_by('id')
+    )
+    for entry in open_entries:
+        entry.status = ChildFinanceEntry.STATUS_CLOSED
+        entry.save(update_fields=['status'])
+
+        _create_finance_entry(
+            child=entry.child,
+            membership=entry.membership,
+            event_type=ChildFinanceEntry.TYPE_PAYMENT,
+            direction=ChildFinanceEntry.DIR_CREDIT,
+            status=ChildFinanceEntry.STATUS_CLOSED,
+            title='Příchozí platba',
+            amount=payment.amount_czk,
+            variable_symbol=payment.variable_symbol,
+            note=f"{payment.sender_name or ''} {payment.note or ''}".strip(),
+            created_by=created_by,
+            reference=_next_reference('PLT'),
+        )
+        _create_finance_entry(
+            child=entry.child,
+            membership=entry.membership,
+            event_type=ChildFinanceEntry.TYPE_INVOICE,
+            direction=ChildFinanceEntry.DIR_DEBIT,
+            status=ChildFinanceEntry.STATUS_CLOSED,
+            title=f"Faktura k záloze {entry.reference_code or ''}".strip(),
+            amount=entry.amount_czk,
+            variable_symbol=entry.variable_symbol,
+            note=entry.note,
+            created_by=created_by,
+            reference=_next_reference('FAK'),
+        )
+        return entry
+    return None
+
+
 def public_register(request):
     form = RegistrationForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         parent, child, membership, created_parent, created_child, membership_created = form.save()
+        ChildArchiveLog.objects.create(
+            child=child,
+            actor=parent,
+            event_type=ChildArchiveLog.EVENT_REGISTRATION,
+            message='Veřejná registrace / aktualizace údajů rodičem.',
+        )
         login(request, parent)
         if not created_child and membership_created:
             messages.info(request, 'Dítě již existovalo a bylo přiřazeno do nové skupiny.')
         elif not membership_created:
             messages.warning(request, 'Dítě je již v této skupině. Vyberte jinou skupinu.')
+        else:
+            messages.success(
+                request,
+                'Děkujeme za registraci. Shrnutí posíláme na email. '
+                'Uložte si přístupové údaje v prohlížeči pro další přihlášení.',
+            )
         return redirect('parent_dashboard')
     return render(request, 'public/register.html', {'form': form})
 
@@ -47,16 +210,97 @@ def public_register(request):
 def attendance_options_api(request):
     group_id = request.GET.get('group_id')
     if not group_id:
-        return JsonResponse({'options': [], 'months': []})
+        return JsonResponse({'options': [], 'months': [], 'group': None})
     group = Group.objects.filter(id=group_id).first()
     options = AttendanceOption.objects.filter(group_id=group_id).values('id', 'name')
     months = []
+    group_payload = None
     if group:
         months = [
             {'value': m.strftime('%Y-%m'), 'label': m.strftime('%m/%Y')}
-            for m in group_month_starts(group)
+            for m in _allowed_start_months(group)
         ]
-    return JsonResponse({'options': list(options), 'months': months})
+        spots = group.free_slots
+        group_payload = {
+            'id': group.id,
+            'name': str(group),
+            'registration_state': group.registration_state,
+            'max_members': group.max_members,
+            'free_slots': spots,
+        }
+    return JsonResponse({'options': list(options), 'months': months, 'group': group_payload})
+
+
+def public_data_completion(request):
+    lookup_form = DataCompletionLookupForm(request.GET or None)
+    children = Child.objects.none()
+    selected_child = None
+    completion_form = None
+
+    if lookup_form.is_valid():
+        last_name = (lookup_form.cleaned_data.get('last_name') or '').strip()
+        first_name = (lookup_form.cleaned_data.get('first_name') or '').strip()
+        vs = (lookup_form.cleaned_data.get('variable_symbol') or '').strip()
+        children = Child.objects.select_related('parent').prefetch_related('memberships__group', 'memberships__attendance_option')
+        if last_name:
+            children = children.filter(last_name__icontains=last_name)
+        if first_name:
+            children = children.filter(first_name__icontains=first_name)
+        if vs:
+            children = children.filter(variable_symbol__icontains=vs)
+        children = children.order_by('last_name', 'first_name')[:50]
+
+    selected_child_id = request.GET.get('child_id') or request.POST.get('child_id')
+    if selected_child_id:
+        selected_child = Child.objects.select_related('parent').prefetch_related('memberships__group', 'memberships__attendance_option').filter(id=selected_child_id).first()
+    if selected_child:
+        initial = {
+            'parent_email': selected_child.parent.email if selected_child.parent else '',
+            'parent_phone': selected_child.parent.phone if selected_child.parent else '',
+            'parent_street': selected_child.parent.street if selected_child.parent else '',
+            'parent_city': selected_child.parent.city if selected_child.parent else '',
+            'parent_zip': selected_child.parent.zip_code if selected_child.parent else '',
+            'child_birth_number': selected_child.birth_number or '',
+            'child_passport_number': selected_child.passport_number or '',
+        }
+        completion_form = DataCompletionUpdateForm(request.POST or None, initial=initial)
+        if request.method == 'POST' and completion_form.is_valid():
+            data = completion_form.cleaned_data
+            parent = selected_child.parent
+            parent.email = data['parent_email']
+            parent.phone = data['parent_phone']
+            parent.street = data['parent_street']
+            parent.city = data['parent_city']
+            parent.zip_code = data['parent_zip']
+            parent.save(update_fields=['email', 'phone', 'street', 'city', 'zip_code'])
+
+            selected_child.birth_number = data.get('child_birth_number') or None
+            selected_child.passport_number = data.get('child_passport_number') or None
+            selected_child.save(update_fields=['birth_number', 'passport_number'])
+
+            ChildConsent.objects.create(
+                child=selected_child,
+                parent=parent,
+                consent_vop=data['consent_vop'],
+                consent_gdpr=data['consent_gdpr'],
+                consent_health=data['consent_health'],
+                source=ChildConsent.SOURCE_COMPLETION,
+            )
+            ChildArchiveLog.objects.create(
+                child=selected_child,
+                actor=parent,
+                event_type=ChildArchiveLog.EVENT_PROFILE,
+                message='Doplněné chybějící údaje rodičem přes formulář doplnění.',
+            )
+            messages.success(request, 'Děkujeme, údaje byly doplněny.')
+            return redirect(f"{reverse('public_data_completion')}?child_id={selected_child.id}")
+
+    return render(request, 'public/data_completion.html', {
+        'lookup_form': lookup_form,
+        'children': children,
+        'selected_child': selected_child,
+        'completion_form': completion_form,
+    })
 
 
 def _groups_nav():
@@ -102,10 +346,155 @@ def _group_attendance_percent_map(group, child_ids):
     return {child_id: int((present_map.get(child_id, 0) / total) * 100) for child_id in child_ids}
 
 
+def _group_avg_attendance_percent(group):
+    memberships = list(Membership.objects.filter(group=group, active=True).only('child_id'))
+    if not memberships:
+        return 0
+    child_ids = [m.child_id for m in memberships]
+    values = _group_attendance_percent_map(group, child_ids)
+    if not values:
+        return 0
+    return int(round(sum(values.values()) / len(values)))
+
+
 @role_required('admin')
 def admin_group_list(request):
-    groups = Group.objects.select_related('sport').prefetch_related('trainers').order_by('sport__name', 'name')
-    return render(request, 'admin/groups_list.html', {'groups': groups, 'groups_nav': _groups_nav()})
+    groups = list(Group.objects.select_related('sport').prefetch_related('trainers').order_by('sport__name', 'name'))
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+
+        if action == 'archive_groups':
+            selected_ids = request.POST.getlist('selected_groups')
+            selected_groups = [g for g in groups if str(g.id) in selected_ids]
+            if not selected_groups:
+                messages.warning(request, 'Vyberte alespoň jednu skupinu pro archiv.')
+                return redirect('admin_groups')
+
+            response = HttpResponse(content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = 'attachment; filename="archiv_skupin.csv"'
+            response.write('\ufeff')
+            writer = csv.writer(response, delimiter=';')
+            writer.writerow([
+                'Sport',
+                'Skupina',
+                'Obdobi_od',
+                'Obdobi_do',
+                'Jmeno',
+                'Prijmeni',
+                'VS',
+                'Rodne_cislo',
+                'Telefon_rodice',
+                'Varianta',
+                'Zarazeni_od',
+                'Aktivni',
+                'Dochazka_%',
+            ])
+            for group in selected_groups:
+                memberships = list(
+                    Membership.objects.filter(group=group).select_related('child', 'child__parent', 'attendance_option')
+                )
+                attendance_map = _group_attendance_percent_map(group, [m.child_id for m in memberships])
+                for membership in memberships:
+                    writer.writerow([
+                        group.sport.name,
+                        group.name,
+                        group.start_date.isoformat() if group.start_date else '',
+                        group.end_date.isoformat() if group.end_date else '',
+                        membership.child.first_name,
+                        membership.child.last_name,
+                        membership.child.variable_symbol,
+                        membership.child.birth_number or membership.child.passport_number or '',
+                        membership.child.parent.phone if membership.child.parent else '',
+                        membership.attendance_option.name if membership.attendance_option else '',
+                        membership.registered_at.date().isoformat() if membership.registered_at else '',
+                        'ANO' if membership.active else 'NE',
+                        attendance_map.get(membership.child_id, 0),
+                    ])
+            return response
+
+        if action == 'clone_groups':
+            selected_ids = request.POST.getlist('selected_groups')
+            selected_groups = [g for g in groups if str(g.id) in selected_ids]
+            if not selected_groups:
+                messages.warning(request, 'Vyberte alespoň jednu skupinu pro kopii.')
+                return redirect('admin_groups')
+            suffix = (request.POST.get('clone_suffix') or '').strip()
+            start_raw = (request.POST.get('clone_start_date') or '').strip()
+            end_raw = (request.POST.get('clone_end_date') or '').strip()
+            if not suffix:
+                messages.error(request, 'Vyplňte příznak pro nové skupiny (např. 2026/2).')
+                return redirect('admin_groups')
+            try:
+                new_start = date.fromisoformat(start_raw) if start_raw else None
+                new_end = date.fromisoformat(end_raw) if end_raw else None
+            except ValueError:
+                messages.error(request, 'Neplatné datum pro kopii skupin.')
+                return redirect('admin_groups')
+
+            created = 0
+            copied_memberships = 0
+            with transaction.atomic():
+                for source in selected_groups:
+                    new_name = f"{source.name} {suffix}"
+                    clone, was_created = Group.objects.get_or_create(
+                        sport=source.sport,
+                        name=new_name,
+                        defaults={
+                            'training_days': source.training_days,
+                            'start_date': new_start,
+                            'end_date': new_end,
+                            'registration_state': Group.REG_DISABLED,
+                            'max_members': source.max_members,
+                            'allow_combined_registration': source.allow_combined_registration,
+                        },
+                    )
+                    if was_created:
+                        created += 1
+                        clone.trainers.set(source.trainers.all())
+                        for option in source.attendance_options.all():
+                            AttendanceOption.objects.create(
+                                group=clone,
+                                name=option.name,
+                                frequency_per_week=option.frequency_per_week,
+                                price_czk=option.price_czk,
+                            )
+                    option_by_name = {o.name: o for o in clone.attendance_options.all()}
+                    for membership in Membership.objects.filter(group=source, active=True).select_related('attendance_option'):
+                        target_option = None
+                        if membership.attendance_option:
+                            target_option = option_by_name.get(membership.attendance_option.name)
+                        _, was_membership_created = Membership.objects.get_or_create(
+                            child=membership.child,
+                            group=clone,
+                            defaults={
+                                'attendance_option': target_option,
+                                'billing_start_month': month_start(new_start) if new_start else membership.billing_start_month,
+                                'active': True,
+                            },
+                        )
+                        if was_membership_created:
+                            copied_memberships += 1
+            messages.success(
+                request,
+                f'Vytvořeno skupin: {created}. Zkopírovaná členství: {copied_memberships}.',
+            )
+            return redirect('admin_groups')
+
+    groups_by_sport = {}
+    for group in groups:
+        groups_by_sport.setdefault(group.sport.name, [])
+        groups_by_sport[group.sport.name].append({
+            'group': group,
+            'members_count': group.active_members_count,
+            'avg_attendance_percent': _group_avg_attendance_percent(group),
+        })
+
+    return render(request, 'admin/groups_list.html', {
+        'groups': groups,
+        'groups_by_sport': groups_by_sport,
+        'groups_nav': _groups_nav(),
+    })
 
 
 @role_required('admin')
@@ -421,7 +810,7 @@ def admin_child_edit(request, child_id):
     child = get_object_or_404(Child, id=child_id)
     form = ChildEditForm(request.POST or None, instance=child)
     membership_form = AdminMembershipAddForm(request.POST or None)
-    memberships = Membership.objects.filter(child=child).select_related('group', 'attendance_option')
+    memberships = Membership.objects.filter(child=child).select_related('group', 'attendance_option').order_by('-active', 'group__name')
     if request.method == 'POST':
         if 'update_membership_date' in request.POST:
             membership_id = request.POST.get('membership_id')
@@ -443,7 +832,81 @@ def admin_child_edit(request, child_id):
 
             membership.registered_at = new_dt
             membership.save(update_fields=['registered_at'])
-            messages.success(request, 'Datum zařazení do skupiny bylo uloženo.')
+            ChildArchiveLog.objects.create(
+                child=child,
+                actor=request.user,
+                event_type=ChildArchiveLog.EVENT_MEMBERSHIP,
+                message=f"Změněno datum zařazení do skupiny {membership.group} na {registered_date:%d.%m.%Y}.",
+            )
+            messages.success(request, 'Datum zařazení do skupiny bylo uloženo automaticky.')
+            return redirect('admin_child_edit', child_id=child.id)
+
+        if 'end_membership' in request.POST:
+            membership_id = request.POST.get('membership_id')
+            end_mode = (request.POST.get('end_mode') or 'without_refund').strip()
+            membership = get_object_or_404(Membership, id=membership_id, child=child, active=True)
+            refund_raw = (request.POST.get('refund_amount') or '0').strip().replace(',', '.')
+            refund_amount = Decimal('0.00')
+            if end_mode == 'with_refund':
+                try:
+                    refund_amount = Decimal(refund_raw).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                except Exception:
+                    messages.error(request, 'Neplatná částka vratky.')
+                    return redirect('admin_child_edit', child_id=child.id)
+                if refund_amount <= 0:
+                    messages.error(request, 'Částka vratky musí být vyšší než 0.')
+                    return redirect('admin_child_edit', child_id=child.id)
+
+            membership.active = False
+            membership.save(update_fields=['active'])
+            ChildFinanceEntry.objects.filter(
+                membership=membership,
+                event_type=ChildFinanceEntry.TYPE_PROFORMA,
+                status=ChildFinanceEntry.STATUS_OPEN,
+            ).update(status=ChildFinanceEntry.STATUS_CANCELLED)
+
+            if end_mode == 'with_refund':
+                _create_finance_entry(
+                    child=child,
+                    membership=membership,
+                    event_type=ChildFinanceEntry.TYPE_REFUND,
+                    direction=ChildFinanceEntry.DIR_CREDIT,
+                    status=ChildFinanceEntry.STATUS_CLOSED,
+                    title=f"Ukončení členství s vratkou ({membership.group})",
+                    amount=refund_amount,
+                    variable_symbol=child.variable_symbol,
+                    note='Vrácení přeplatku po ukončení členství.',
+                    created_by=request.user,
+                    reference=_next_reference('VRATKA'),
+                )
+                ChildArchiveLog.objects.create(
+                    child=child,
+                    actor=request.user,
+                    event_type=ChildArchiveLog.EVENT_MEMBERSHIP,
+                    message=f"Ukončeno členství ve skupině {membership.group} s vratkou {refund_amount} Kč.",
+                )
+                messages.success(request, 'Členství bylo ukončeno s vratkou.')
+            else:
+                _create_finance_entry(
+                    child=child,
+                    membership=membership,
+                    event_type=ChildFinanceEntry.TYPE_MEMBERSHIP_END,
+                    direction=ChildFinanceEntry.DIR_CREDIT,
+                    status=ChildFinanceEntry.STATUS_CLOSED,
+                    title=f"Ukončení členství bez vratky ({membership.group})",
+                    amount=Decimal('0.00'),
+                    variable_symbol=child.variable_symbol,
+                    note='Ukončeno bez finanční vratky.',
+                    created_by=request.user,
+                    reference=_next_reference('END'),
+                )
+                ChildArchiveLog.objects.create(
+                    child=child,
+                    actor=request.user,
+                    event_type=ChildArchiveLog.EVENT_MEMBERSHIP,
+                    message=f"Ukončeno členství ve skupině {membership.group} bez vratky.",
+                )
+                messages.success(request, 'Členství bylo ukončeno bez vratky.')
             return redirect('admin_child_edit', child_id=child.id)
 
         if 'add_membership' in request.POST and membership_form.is_valid():
@@ -457,17 +920,123 @@ def admin_child_edit(request, child_id):
             if not created and attendance_option and membership.attendance_option_id != attendance_option.id:
                 membership.attendance_option = attendance_option
                 membership.save()
+            membership.active = True
+            membership.save(update_fields=['active', 'attendance_option'])
+            ChildArchiveLog.objects.create(
+                child=child,
+                actor=request.user,
+                event_type=ChildArchiveLog.EVENT_MEMBERSHIP,
+                message=f"Přiřazeno do skupiny {group}.",
+            )
             messages.success(request, 'Dítě bylo přiřazeno do skupiny.')
             return redirect('admin_child_edit', child_id=child.id)
         elif 'save_child' in request.POST and form.is_valid():
             form.save()
+            ChildArchiveLog.objects.create(
+                child=child,
+                actor=request.user,
+                event_type=ChildArchiveLog.EVENT_PROFILE,
+                message='Upravené údaje dítěte v kartě.',
+            )
             messages.success(request, 'Údaje dítěte byly uloženy.')
             return redirect('admin_child_edit', child_id=child.id)
+
+        if 'add_sale_charge' in request.POST:
+            title = (request.POST.get('sale_title') or '').strip()
+            amount_raw = (request.POST.get('sale_amount') or '').strip().replace(',', '.')
+            note = (request.POST.get('sale_note') or '').strip()
+            if not title:
+                messages.error(request, 'Vyplňte název prodejní položky.')
+                return redirect('admin_child_edit', child_id=child.id)
+            try:
+                amount_value = Decimal(amount_raw).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            except Exception:
+                messages.error(request, 'Neplatná částka prodejní položky.')
+                return redirect('admin_child_edit', child_id=child.id)
+            if amount_value <= 0:
+                messages.error(request, 'Částka musí být větší než 0.')
+                return redirect('admin_child_edit', child_id=child.id)
+
+            from .models import SaleCharge
+            sale = SaleCharge.objects.create(
+                child=child,
+                title=title,
+                amount_czk=amount_value,
+                note=note,
+                created_by=request.user,
+            )
+            _create_finance_entry(
+                child=child,
+                event_type=ChildFinanceEntry.TYPE_SALE,
+                direction=ChildFinanceEntry.DIR_DEBIT,
+                status=ChildFinanceEntry.STATUS_OPEN,
+                title=f"Prodej: {sale.title}",
+                amount=sale.amount_czk,
+                variable_symbol=child.variable_symbol,
+                note=sale.note,
+                created_by=request.user,
+                reference=_next_reference('PRODEJ'),
+            )
+            messages.success(request, 'Prodejní položka byla přidána.')
+            return redirect('admin_child_edit', child_id=child.id)
+
+        if 'toggle_sale_paid' in request.POST:
+            sale_id = request.POST.get('sale_id')
+            from .models import SaleCharge
+            sale = get_object_or_404(SaleCharge, id=sale_id, child=child)
+            mark_paid = request.POST.get('mark_paid') == '1'
+            if mark_paid:
+                _create_finance_entry(
+                    child=child,
+                    event_type=ChildFinanceEntry.TYPE_PAYMENT,
+                    direction=ChildFinanceEntry.DIR_CREDIT,
+                    status=ChildFinanceEntry.STATUS_CLOSED,
+                    title=f"Úhrada prodeje: {sale.title}",
+                    amount=sale.amount_czk,
+                    variable_symbol=child.variable_symbol,
+                    note='Ručně potvrzená úhrada prodejní položky.',
+                    created_by=request.user,
+                    reference=_next_reference('PLT'),
+                )
+                ChildFinanceEntry.objects.filter(
+                    child=child,
+                    event_type=ChildFinanceEntry.TYPE_SALE,
+                    status=ChildFinanceEntry.STATUS_OPEN,
+                    title=f"Prodej: {sale.title}",
+                    amount_czk=sale.amount_czk,
+                ).update(status=ChildFinanceEntry.STATUS_CLOSED)
+            else:
+                ChildFinanceEntry.objects.filter(
+                    child=child,
+                    event_type=ChildFinanceEntry.TYPE_SALE,
+                    title=f"Prodej: {sale.title}",
+                    amount_czk=sale.amount_czk,
+                ).update(status=ChildFinanceEntry.STATUS_OPEN)
+            messages.success(request, 'Stav prodejní položky byl změněn.')
+            return redirect('admin_child_edit', child_id=child.id)
+
+    finance_entries = (
+        ChildFinanceEntry.objects
+        .filter(child=child)
+        .select_related('membership', 'membership__group')
+        .order_by('-occurred_on', '-id')
+    )
+    from .models import SaleCharge
+    sale_charges = list(SaleCharge.objects.filter(child=child).order_by('-created_at', '-id'))
+    for sale in sale_charges:
+        sale.paid = ChildFinanceEntry.objects.filter(
+            child=child,
+            event_type=ChildFinanceEntry.TYPE_PAYMENT,
+            title=f"Úhrada prodeje: {sale.title}",
+            amount_czk=sale.amount_czk,
+        ).exists()
     return render(request, 'admin/child_form.html', {
         'child': child,
         'form': form,
         'membership_form': membership_form,
         'memberships': memberships,
+        'finance_entries': finance_entries,
+        'sale_charges': sale_charges,
         'groups_nav': _groups_nav(),
     })
 
@@ -475,28 +1044,29 @@ def admin_child_edit(request, child_id):
 @role_required('admin')
 def admin_children_list(request):
     query = (request.GET.get('q') or '').strip()
-    group_filter = request.GET.get('group') or ''
-    rows = _children_rows(query=query, group_filter=group_filter)
+    group_filters = [g for g in request.GET.getlist('groups') if g]
+    rows = _children_rows(query=query, group_filters=group_filters)
     return render(request, 'admin/children_list.html', {
         'rows': rows,
         'query': query,
-        'group_filter': group_filter,
+        'group_filters': group_filters,
         'groups': Group.objects.select_related('sport').order_by('sport__name', 'name'),
         'groups_nav': _groups_nav(),
+        'admin_wide_content': True,
     })
 
 
-def _children_rows(query='', group_filter=''):
+def _children_rows(query='', group_filters=None):
     query = (query or '').strip()
-    group_filter = str(group_filter or '').strip()
+    group_filters = [str(v) for v in (group_filters or []) if str(v).strip()]
 
     memberships_prefetch = Prefetch(
         'memberships',
         queryset=Membership.objects.select_related('group').order_by('registered_at', 'id'),
     )
     children = Child.objects.select_related('parent').prefetch_related(memberships_prefetch)
-    if group_filter:
-        children = children.filter(memberships__group_id=group_filter)
+    if group_filters:
+        children = children.filter(memberships__group_id__in=group_filters)
     if query:
         children = children.filter(
             Q(first_name__icontains=query) |
@@ -522,8 +1092,8 @@ def _children_rows(query='', group_filter=''):
     for child in children:
         memberships = list(child.memberships.all())
         memberships_for_date = memberships
-        if group_filter:
-            memberships_for_date = [m for m in memberships if str(m.group_id) == str(group_filter)]
+        if group_filters:
+            memberships_for_date = [m for m in memberships if str(m.group_id) in group_filters]
         first_membership = memberships_for_date[0] if memberships_for_date else None
         rows.append({
             'child': child,
@@ -539,8 +1109,8 @@ def _children_rows(query='', group_filter=''):
 @role_required('admin')
 def admin_children_export_xls(request):
     query = (request.GET.get('q') or '').strip()
-    group_filter = request.GET.get('group') or ''
-    rows = _children_rows(query=query, group_filter=group_filter)
+    group_filters = [g for g in request.GET.getlist('groups') if g]
+    rows = _children_rows(query=query, group_filters=group_filters)
 
     response = HttpResponse(content_type='application/vnd.ms-excel; charset=utf-8')
     response['Content-Disposition'] = 'attachment; filename="deti_export.xls"'
@@ -574,6 +1144,72 @@ def admin_children_export_xls(request):
 
 @role_required('admin')
 def admin_contributions(request):
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        membership = None
+        membership_id = request.POST.get('membership_id')
+        if membership_id:
+            membership = get_object_or_404(
+                Membership.objects.select_related('group', 'child', 'attendance_option', 'group__sport'),
+                id=membership_id,
+                active=True,
+            )
+
+        if action == 'update_membership' and membership:
+            option_id = request.POST.get('attendance_option_id') or ''
+            month_raw = (request.POST.get('billing_start_month') or '').strip()
+            option = None
+            if option_id:
+                option = get_object_or_404(AttendanceOption, id=option_id, group=membership.group)
+            membership.attendance_option = option
+            if month_raw:
+                try:
+                    membership.billing_start_month = date.fromisoformat(f"{month_raw}-01")
+                except ValueError:
+                    messages.error(request, 'Neplatný měsíc zařazení.')
+                    return redirect('admin_contributions')
+            else:
+                membership.billing_start_month = None
+            membership.save(update_fields=['attendance_option', 'billing_start_month'])
+            cancelled = ChildFinanceEntry.objects.filter(
+                membership=membership,
+                event_type=ChildFinanceEntry.TYPE_PROFORMA,
+                status=ChildFinanceEntry.STATUS_OPEN,
+            ).update(status=ChildFinanceEntry.STATUS_CANCELLED)
+            if cancelled:
+                _create_finance_entry(
+                    child=membership.child,
+                    membership=membership,
+                    event_type=ChildFinanceEntry.TYPE_INFO,
+                    direction=ChildFinanceEntry.DIR_CREDIT,
+                    status=ChildFinanceEntry.STATUS_CLOSED,
+                    title='Změna členství – původní záloha stornována',
+                    amount=Decimal('0.00'),
+                    variable_symbol=membership.child.variable_symbol,
+                    note='Po změně skupiny/varianty je nutné vystavit novou zálohu.',
+                    created_by=request.user,
+                    reference=_next_reference('STORNO'),
+                )
+            ChildArchiveLog.objects.create(
+                child=membership.child,
+                actor=request.user,
+                event_type=ChildArchiveLog.EVENT_MEMBERSHIP,
+                message=(
+                    f"Změna členství v příspěvcích: {membership.group} | varianta "
+                    f"{membership.attendance_option.name if membership.attendance_option else '-'}."
+                ),
+            )
+            messages.success(request, 'Varianta a zařazení byly uložené.')
+            return redirect('admin_contributions')
+
+        if action == 'generate_proforma' and membership:
+            entry = _issue_membership_proforma(membership, created_by=request.user)
+            if entry:
+                messages.success(request, f'Vygenerována záloha {entry.reference_code}.')
+            else:
+                messages.warning(request, 'Pro tuto položku není částka k úhradě.')
+            return redirect('admin_contributions')
+
     sort = request.GET.get('sort', 'name')
     direction = request.GET.get('dir', 'asc')
     query = (request.GET.get('q') or '').strip()
@@ -608,6 +1244,10 @@ def admin_contributions(request):
     rows = rows.order_by(*order_fields)
 
     rows = list(rows)
+    options_by_group = {
+        group.id: list(group.attendance_options.all().order_by('frequency_per_week', 'name'))
+        for group in Group.objects.prefetch_related('attendance_options')
+    }
     payment_counter = build_payment_counter(ReceivedPayment.objects.all().only('variable_symbol', 'amount_czk'))
     total_due = 0
     for row in rows:
@@ -630,7 +1270,20 @@ def admin_contributions(request):
         row.payable_months = payable_months
         row.base_price = base_price
         row.due_amount = due_amount
-        row.paid = consume_matching_payment(payment_counter, row.child.variable_symbol, due_amount)
+        finance_entries = list(
+            ChildFinanceEntry.objects.filter(membership=row).order_by('-id')[:20]
+        )
+        open_proforma = next((e for e in finance_entries if e.event_type == ChildFinanceEntry.TYPE_PROFORMA and e.status == ChildFinanceEntry.STATUS_OPEN), None)
+        has_invoice = any(e.event_type == ChildFinanceEntry.TYPE_INVOICE and e.status == ChildFinanceEntry.STATUS_CLOSED for e in finance_entries)
+        paid_by_old_matching = consume_matching_payment(payment_counter, row.child.variable_symbol, due_amount)
+        row.open_proforma = open_proforma
+        row.has_invoice = has_invoice
+        row.paid = has_invoice or paid_by_old_matching
+        row.group_options = options_by_group.get(row.group_id, [])
+        row.month_choices = [
+            m.strftime('%Y-%m')
+            for m in _allowed_start_months(row.group)
+        ]
         total_due += due_amount
 
     return render(request, 'admin/contributions.html', {
@@ -650,6 +1303,22 @@ def admin_received_payments(request):
     form = ReceivedPaymentForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         payment = form.save()
+        matched_entry = _match_payment_to_open_proforma(payment, created_by=request.user)
+        if not matched_entry:
+            child = Child.objects.filter(variable_symbol=str(payment.variable_symbol)).first()
+            if child:
+                _create_finance_entry(
+                    child=child,
+                    event_type=ChildFinanceEntry.TYPE_PAYMENT,
+                    direction=ChildFinanceEntry.DIR_CREDIT,
+                    status=ChildFinanceEntry.STATUS_CLOSED,
+                    title='Příchozí platba (bez párování)',
+                    amount=payment.amount_czk,
+                    variable_symbol=payment.variable_symbol,
+                    note=f"{payment.sender_name or ''} {payment.note or ''}".strip(),
+                    created_by=request.user,
+                    reference=_next_reference('PLT'),
+                )
         messages.success(
             request,
             f'Přijata platba VS {payment.variable_symbol} ve výši {payment.amount_czk} Kč.',
@@ -660,6 +1329,25 @@ def admin_received_payments(request):
     return render(request, 'admin/received_payments.html', {
         'form': form,
         'payments': payments,
+        'groups_nav': _groups_nav(),
+        'admin_wide_content': True,
+    })
+
+
+@role_required('admin')
+def admin_documents(request):
+    form = ClubDocumentForm(request.POST or None, request.FILES or None)
+    if request.method == 'POST' and form.is_valid():
+        document = form.save(commit=False)
+        document.uploaded_by = request.user
+        document.save()
+        messages.success(request, 'Dokument byl uložen.')
+        return redirect('admin_documents')
+
+    documents = ClubDocument.objects.select_related('uploaded_by').order_by('-uploaded_at', '-id')
+    return render(request, 'admin/documents.html', {
+        'form': form,
+        'documents': documents,
         'groups_nav': _groups_nav(),
         'admin_wide_content': True,
     })
