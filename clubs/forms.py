@@ -461,8 +461,8 @@ class RegistrationForm(forms.Form):
             try:
                 birth_number = _validate_birth_number(birth_number)
                 _validate_birth_number_online(birth_number)
-            except ValidationError as exc:
-                self.add_error('birth_number', exc)
+            except ValidationError:
+                self.add_error('birth_number', 'POZOR, zadáváte neplatné rodné číslo.')
         cleaned['birth_number'] = birth_number
         cleaned['passport_number'] = passport_number
 
