@@ -5,6 +5,7 @@ urlpatterns = [
     path('registrace/', views.public_register, name='public_register'),
     path('doplnit-udaje/', views.public_data_completion, name='public_data_completion'),
     path('api/attendance-options/', views.attendance_options_api, name='attendance_options_api'),
+    path('api/address-lookup/', views.address_lookup_api, name='address_lookup_api'),
     path('admin/groups/', views.admin_group_list, name='admin_groups'),
     path('admin/groups/new/', views.admin_group_create, name='admin_group_create'),
     path('admin/groups/<int:group_id>/', views.admin_group_detail, name='admin_group_detail'),

@@ -1,16 +1,26 @@
 from django import forms
 from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate
+from django.conf import settings
 from django.db import transaction
 from datetime import date
 import json
 import re
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from users.models import User
 from .models import Group, AttendanceOption, Child, Membership, ReceivedPayment, ClubDocument, ChildConsent
 from .pricing import group_month_starts, normalize_start_month
 
 BIRTH_NUMBER_RE = re.compile(r'^\d{6}/\d{3,4}$')
+NAME_RE = re.compile(r"^[A-Za-zÁČĎÉĚÍŇÓŘŠŤÚŮÝŽáčďéěíňóřšťúůýžÄÖÜäöüß' -]+$")
+CITY_RE = re.compile(r"^[A-Za-zÁČĎÉĚÍŇÓŘŠŤÚŮÝŽáčďéěíňóřšťúůýžÄÖÜäöüß' .-]+$")
+STREET_RE = re.compile(r"^[0-9A-Za-zÁČĎÉĚÍŇÓŘŠŤÚŮÝŽáčďéěíňóřšťúůýžÄÖÜäöüß/.,' -]+$")
+COMMON_DIMINUTIVES = {
+    'honzík', 'honza', 'péťa', 'peťa', 'anička', 'kája', 'kájík', 'míša',
+    'dáda', 'venca', 'šťepa', 'luky', 'tomík', 'tomášek', 'maruška',
+}
 TRAINING_DAY_CHOICES = [
     ('Po', 'Pondělí'),
     ('Út', 'Úterý'),
@@ -20,6 +30,158 @@ TRAINING_DAY_CHOICES = [
     ('So', 'Sobota'),
     ('Ne', 'Neděle'),
 ]
+
+
+def _normalize_spaces(value):
+    return re.sub(r'\s+', ' ', (value or '').strip())
+
+
+def _clean_person_name(value, field_label):
+    value = _normalize_spaces(value)
+    if not value:
+        raise ValidationError(f'{field_label} je povinné.')
+    if not NAME_RE.match(value):
+        raise ValidationError(f'{field_label} obsahuje nepovolené znaky.')
+    if len(value) < 2:
+        raise ValidationError(f'{field_label} je příliš krátké.')
+    parts = [part for part in value.split(' ') if part]
+    for part in parts:
+        if not part[0].isupper():
+            raise ValidationError(f'{field_label} musí začínat velkým písmenem.')
+        if part.lower() in COMMON_DIMINUTIVES:
+            raise ValidationError(f'{field_label} vypadá jako zdrobnělina. Použijte prosím úřední tvar.')
+    return value
+
+
+def _normalize_cz_phone(value, required=True):
+    raw = (value or '').strip()
+    if not raw:
+        if required:
+            raise ValidationError('Telefon je povinný.')
+        return ''
+    normalized = raw.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    if normalized.startswith('00'):
+        normalized = '+' + normalized[2:]
+    if normalized.startswith('+420'):
+        normalized = normalized[4:]
+    elif normalized.startswith('420') and len(normalized) > 9:
+        normalized = normalized[3:]
+    if not normalized.isdigit():
+        raise ValidationError('Telefon musí obsahovat pouze číslice.')
+    if len(normalized) != 9:
+        raise ValidationError('Telefon musí mít 9 číslic (CZ formát).')
+    return normalized
+
+
+def _clean_city_name(value):
+    value = _normalize_spaces(value)
+    if not value:
+        raise ValidationError('Město je povinné.')
+    if not CITY_RE.match(value):
+        raise ValidationError('Město obsahuje nepovolené znaky.')
+    return value
+
+
+def _clean_street(value):
+    value = _normalize_spaces(value)
+    if not value:
+        raise ValidationError('Ulice je povinná.')
+    if len(value) < 3:
+        raise ValidationError('Ulice je příliš krátká.')
+    if not STREET_RE.match(value):
+        raise ValidationError('Ulice obsahuje nepovolené znaky.')
+    return value
+
+
+def _validate_birth_number(value):
+    val = (value or '').strip()
+    if not val:
+        return val
+    if not BIRTH_NUMBER_RE.match(val):
+        raise ValidationError('Rodné číslo musí být ve formátu 123456/7890.')
+
+    base, ext = val.split('/')
+    yy = int(base[0:2])
+    month = int(base[2:4])
+    day = int(base[4:6])
+
+    if month > 70:
+        month -= 70
+    elif month > 50:
+        month -= 50
+    elif month > 20:
+        month -= 20
+
+    if month < 1 or month > 12:
+        raise ValidationError('Rodné číslo obsahuje neplatný měsíc.')
+
+    current_year_2 = date.today().year % 100
+    if len(ext) == 3:
+        year = 1900 + yy
+    else:
+        year = 2000 + yy if yy <= current_year_2 else 1900 + yy
+        full_number = int(base + ext)
+        if full_number % 11 != 0:
+            raise ValidationError('Rodné číslo neprošlo kontrolou dělitelnosti 11.')
+
+    try:
+        born = date(year, month, day)
+    except ValueError:
+        raise ValidationError('Rodné číslo obsahuje neplatné datum.')
+    if born > date.today():
+        raise ValidationError('Rodné číslo obsahuje datum v budoucnosti.')
+
+    return val
+
+
+def _validate_birth_number_online(value):
+    """
+    Optional online validation hook.
+    Set BIRTH_NUMBER_VALIDATION_URL in settings/env.
+    URL can contain "{birth_number}" placeholder or accept "birth_number" query param.
+    Expects JSON with one of keys: valid / is_valid / status.
+    """
+    endpoint = (getattr(settings, 'BIRTH_NUMBER_VALIDATION_URL', '') or '').strip()
+    if not endpoint:
+        return
+
+    if '{birth_number}' in endpoint:
+        url = endpoint.format(birth_number=value)
+    else:
+        joiner = '&' if '?' in endpoint else '?'
+        url = f"{endpoint}{joiner}{urlencode({'birth_number': value})}"
+
+    req = Request(
+        url,
+        headers={
+            'User-Agent': 'SK-Mnisecko-Registration/1.0',
+            'Accept': 'application/json',
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=4) as resp:
+            payload_raw = resp.read().decode('utf-8', errors='ignore')
+    except Exception:
+        # Fail-open: registration should not be blocked by temporary network outage.
+        return
+
+    try:
+        payload = json.loads(payload_raw)
+    except Exception:
+        return
+
+    valid = payload.get('valid')
+    if valid is None:
+        valid = payload.get('is_valid')
+    if valid is None:
+        status = str(payload.get('status', '')).strip().lower()
+        if status:
+            valid = status in {'ok', 'valid', 'true', '1', 'yes'}
+
+    if valid is False:
+        msg = payload.get('message') or payload.get('error') or 'Rodné číslo neprošlo online kontrolou.'
+        raise ValidationError(msg)
 
 
 class GroupAdminForm(forms.ModelForm):
@@ -137,7 +299,7 @@ class RegistrationForm(forms.Form):
     start_month = forms.ChoiceField(
         choices=[],
         required=False,
-        label='Začátek docházky od měsíce',
+        label='Začátek členství od',
     )
     extra_memberships = forms.CharField(required=False, widget=forms.HiddenInput)
 
@@ -180,6 +342,10 @@ class RegistrationForm(forms.Form):
         )
         self.fields['group'].label_from_instance = self._group_label
         self.fields['start_month'].choices = [('', '— dle aktuálního měsíce —')]
+        self.fields['child_first_name'].help_text = 'Použijte oficiální tvar jména (bez zdrobnělin).'
+        self.fields['child_last_name'].help_text = 'Použijte oficiální tvar příjmení s diakritikou dle dokladů.'
+        self.fields['parent_phone'].help_text = 'Telefon ukládáme jednotně v CZ formátu (9 číslic).'
+        self.fields['parent_street'].help_text = 'Začněte psát ulici a číslo domu, nabídneme online adresy.'
 
         if 'group' in self.data:
             try:
@@ -232,12 +398,18 @@ class RegistrationForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        birth_number = cleaned.get('birth_number')
-        passport_number = cleaned.get('passport_number')
+        birth_number = (cleaned.get('birth_number') or '').strip()
+        passport_number = (cleaned.get('passport_number') or '').strip()
         password1 = cleaned.get('password1')
         password2 = cleaned.get('password2')
         parent_email = cleaned.get('parent_email')
         group = cleaned.get('group')
+
+        def _set_cleaned(field_name, cleaner, *args, **kwargs):
+            try:
+                cleaned[field_name] = cleaner(cleaned.get(field_name), *args, **kwargs)
+            except ValidationError as exc:
+                self.add_error(field_name, exc)
 
         if self.is_parent_registration:
             cleaned['parent_first_name'] = self._current_parent.first_name
@@ -247,6 +419,9 @@ class RegistrationForm(forms.Form):
             cleaned['parent_street'] = self._current_parent.street
             cleaned['parent_city'] = self._current_parent.city
             cleaned['parent_zip'] = self._current_parent.zip_code
+            _set_cleaned('child_first_name', _clean_person_name, 'Jméno dítěte')
+            _set_cleaned('child_last_name', _clean_person_name, 'Příjmení dítěte')
+            _set_cleaned('child_phone', _normalize_cz_phone, required=False)
         else:
             if password1 and password2 and password1 != password2:
                 self.add_error('password2', 'Hesla se neshodují.')
@@ -267,10 +442,29 @@ class RegistrationForm(forms.Form):
                             else:
                                 self._existing_parent = parent
 
+            _set_cleaned('child_first_name', _clean_person_name, 'Jméno dítěte')
+            _set_cleaned('child_last_name', _clean_person_name, 'Příjmení dítěte')
+            _set_cleaned('child_phone', _normalize_cz_phone, required=False)
+            _set_cleaned('parent_first_name', _clean_person_name, 'Jméno rodiče')
+            _set_cleaned('parent_last_name', _clean_person_name, 'Příjmení rodiče')
+            _set_cleaned('parent_phone', _normalize_cz_phone, required=True)
+            _set_cleaned('parent_street', _clean_street)
+            _set_cleaned('parent_city', _clean_city_name)
+            zip_code = re.sub(r'\s+', '', (cleaned.get('parent_zip') or ''))
+            if not re.match(r'^\d{5}$', zip_code):
+                self.add_error('parent_zip', 'PSČ musí mít 5 číslic.')
+            cleaned['parent_zip'] = zip_code
+
         if not birth_number and not passport_number:
             self.add_error('birth_number', 'Zadejte rodné číslo, nebo vyplňte číslo pasu u cizince.')
-        if birth_number and not BIRTH_NUMBER_RE.match(birth_number):
-            self.add_error('birth_number', 'Rodné číslo musí být ve formátu 123456/7890.')
+        if birth_number:
+            try:
+                birth_number = _validate_birth_number(birth_number)
+                _validate_birth_number_online(birth_number)
+            except ValidationError as exc:
+                self.add_error('birth_number', exc)
+        cleaned['birth_number'] = birth_number
+        cleaned['passport_number'] = passport_number
 
         memberships_payload = []
         attendance_option = cleaned.get('attendance_option')

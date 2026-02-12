@@ -1,7 +1,9 @@
 import csv
+import json
 from datetime import date, timedelta, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from django.contrib import messages
 from django.contrib.auth import login
@@ -188,6 +190,22 @@ def public_register(request):
     form = RegistrationForm(request.POST or None, parent_user=parent_user)
     if request.method == 'POST' and form.is_valid():
         parent, child, membership, created_parent, created_child, membership_created = form.save()
+
+        # Registrace z veřejného formuláře = okamžitá autorizace členské zálohy,
+        # aby se částka hned zobrazila v rodičovském přehledu.
+        for payload in getattr(form, '_membership_payload', []):
+            payload_group = payload.get('group')
+            if not payload_group:
+                continue
+            membership_obj = (
+                Membership.objects
+                .select_related('attendance_option', 'group')
+                .filter(child=child, group=payload_group, active=True)
+                .first()
+            )
+            if membership_obj:
+                _issue_membership_proforma(membership_obj, created_by=parent)
+
         ChildArchiveLog.objects.create(
             child=child,
             actor=parent,
@@ -231,6 +249,81 @@ def attendance_options_api(request):
             'free_slots': spots,
         }
     return JsonResponse({'options': list(options), 'months': months, 'group': group_payload})
+
+
+def address_lookup_api(request):
+    query = (request.GET.get('q') or '').strip()
+    if len(query) < 4:
+        return JsonResponse({'results': []})
+
+    params = urlencode({
+        'q': query,
+        'format': 'jsonv2',
+        'addressdetails': 1,
+        'countrycodes': 'cz',
+        'limit': 8,
+    })
+    url = f'https://nominatim.openstreetmap.org/search?{params}'
+    req = Request(
+        url,
+        headers={
+            'User-Agent': 'SK-Mnisecko-Registration/1.0',
+            'Accept': 'application/json',
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read().decode('utf-8', errors='ignore'))
+    except Exception:
+        return JsonResponse({'results': []})
+
+    results = []
+    seen = set()
+    for item in payload if isinstance(payload, list) else []:
+        address = item.get('address') or {}
+        road = (
+            address.get('road')
+            or address.get('pedestrian')
+            or address.get('residential')
+            or address.get('footway')
+            or ''
+        ).strip()
+        house_no = (address.get('house_number') or '').strip()
+        city = (
+            address.get('city')
+            or address.get('town')
+            or address.get('village')
+            or address.get('municipality')
+            or address.get('hamlet')
+            or ''
+        ).strip()
+        postcode = (address.get('postcode') or '').replace(' ', '')
+
+        street = ' '.join([part for part in (road, house_no) if part]).strip()
+        if not street:
+            display_name = (item.get('display_name') or '').split(',')[0].strip()
+            street = display_name
+        if not street:
+            continue
+
+        label = street
+        if city or postcode:
+            label = f"{street}, {postcode} {city}".strip()
+
+        key = (street.lower(), city.lower(), postcode)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        results.append({
+            'label': label,
+            'street': street,
+            'city': city,
+            'postcode': postcode,
+        })
+
+    return JsonResponse({'results': results})
 
 
 def public_data_completion(request):

@@ -1085,6 +1085,38 @@ def parent_child_detail(request, child_id):
 
 
 @role_required('parent')
+def parent_child_history(request, child_id):
+    child = get_object_or_404(Child, id=child_id, parent=request.user)
+    entries = list(
+        ChildFinanceEntry.objects
+        .filter(child=child)
+        .select_related('membership', 'membership__group')
+        .order_by('-occurred_on', '-id')
+    )
+    for entry in entries:
+        if entry.event_type in (ChildFinanceEntry.TYPE_PROFORMA, ChildFinanceEntry.TYPE_INVOICE):
+            entry.display_title = 'Členství'
+        else:
+            entry.display_title = entry.title
+
+        if entry.direction == ChildFinanceEntry.DIR_DEBIT and entry.status == ChildFinanceEntry.STATUS_OPEN:
+            entry.parent_status_label = 'Nezaplaceno'
+        elif entry.status == ChildFinanceEntry.STATUS_CLOSED and entry.direction == ChildFinanceEntry.DIR_DEBIT:
+            entry.parent_status_label = 'Uhrazeno'
+        elif entry.status == ChildFinanceEntry.STATUS_CLOSED and entry.direction == ChildFinanceEntry.DIR_CREDIT:
+            entry.parent_status_label = 'Přijato'
+        elif entry.status == ChildFinanceEntry.STATUS_CANCELLED:
+            entry.parent_status_label = 'Storno'
+        else:
+            entry.parent_status_label = entry.get_status_display()
+
+    return render(request, 'parent/child_history.html', {
+        'child': child,
+        'entries': entries,
+    })
+
+
+@role_required('parent')
 def parent_proforma_detail(request, entry_id):
     entry = get_object_or_404(
         ChildFinanceEntry.objects

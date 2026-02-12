@@ -18,5 +18,6 @@ urlpatterns = [
     path('parent/', views.parent_dashboard, name='parent_dashboard'),
     path('parent/profile/', views.parent_profile, name='parent_profile'),
     path('parent/child/<int:child_id>/', views.parent_child_detail, name='parent_child_detail'),
+    path('parent/child/<int:child_id>/history/', views.parent_child_history, name='parent_child_history'),
     path('parent/proforma/<int:entry_id>/', views.parent_proforma_detail, name='parent_proforma_detail'),
 ]

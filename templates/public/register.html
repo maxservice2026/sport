@@ -49,6 +49,67 @@
     white-space: normal;
     line-height: 1.2;
   }
+  .consents-compact {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .consent-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+  }
+  .consent-item a {
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .consent-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(10, 16, 24, 0.62);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+  }
+  .consent-modal.open {
+    display: flex;
+  }
+  .consent-modal-box {
+    background: #fff;
+    width: min(760px, 100%);
+    max-height: calc(100vh - 28px);
+    border-radius: 12px;
+    overflow: auto;
+    padding: 14px;
+    border: 1px solid #dce3eb;
+  }
+  .consent-modal-title {
+    margin: 4px 0 10px;
+  }
+  .consent-modal-text {
+    white-space: pre-wrap;
+    line-height: 1.4;
+    margin: 10px 0;
+  }
+  .consent-modal-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 6px 0;
+  }
+  @media (max-width: 900px) {
+    .consent-modal-box {
+      padding: 10px;
+      border-radius: 10px;
+    }
+    .consent-modal-actions .btn {
+      flex: 1 1 auto;
+    }
+  }
 </style>
 
 <div class="card">
@@ -72,7 +133,7 @@
           {{ form.attendance_option.errors }}
         </div>
         <div>
-          <label>Začátek od měsíce</label>
+          <label>Začátek členství od</label>
           {{ form.start_month }}
           {{ form.start_month.errors }}
         </div>
@@ -96,6 +157,9 @@
     </div>
 
     <h3>Údaje o dítěti</h3>
+    <div class="muted" style="margin-bottom:8px;">
+      Používejte prosím oficiální tvar jména a příjmení (bez&nbsp;zdrobnělin, s diakritikou dle dokladů).
+    </div>
     <div class="form-row">{{ form.child_first_name }}</div>
     <div class="form-row">{{ form.child_last_name }}</div>
     <div class="form-row">{{ form.child_phone }}</div>
@@ -126,13 +190,30 @@
     {% endif %}
 
     <h3>Souhlasy</h3>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">{{ form.consent_vop }}<span>{{ app_settings.consent_vop_text|default:"Souhlasím s VOP" }}</span></label>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">{{ form.consent_gdpr }}<span>{{ app_settings.consent_gdpr_text|default:"Souhlasím se zpracováním osobních údajů (GDPR)" }}</span></label>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">{{ form.consent_health }}<span>{{ app_settings.consent_health_text|default:"Potvrzuji vhodný zdravotní stav dítěte pro sportovní činnost" }}</span></label>
+    <div class="consents-compact">
+      <label class="consent-item">{{ form.consent_vop }}<a href="#" class="consent-open" data-consent="vop">VOP</a></label>
+      <label class="consent-item">{{ form.consent_gdpr }}<a href="#" class="consent-open" data-consent="gdpr">GDPR</a></label>
+      <label class="consent-item">{{ form.consent_health }}<a href="#" class="consent-open" data-consent="health">ZDRAVÍ</a></label>
+    </div>
     {{ form.consent_vop.errors }}{{ form.consent_gdpr.errors }}{{ form.consent_health.errors }}
 
     <button class="btn" type="submit">Odeslat registraci</button>
   </form>
+</div>
+
+<div class="consent-modal" id="consent-modal">
+  <div class="consent-modal-box">
+    <div class="consent-modal-actions">
+      <button type="button" class="btn secondary" id="consent-back-top">Návrat zpět k registraci</button>
+      <button type="button" class="btn" id="consent-accept-top">Odsouhlasit</button>
+    </div>
+    <h3 class="consent-modal-title" id="consent-modal-title"></h3>
+    <div class="consent-modal-text" id="consent-modal-text"></div>
+    <div class="consent-modal-actions">
+      <button type="button" class="btn secondary" id="consent-back-bottom">Návrat zpět k registraci</button>
+      <button type="button" class="btn" id="consent-accept-bottom">Odsouhlasit</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -218,7 +299,7 @@
               <select class="extra-option" data-idx="${idx}"></select>
             </div>
             <div>
-              <label>Začátek od měsíce</label>
+              <label>Začátek členství od</label>
               <select class="extra-month" data-idx="${idx}"></select>
             </div>
             <button type="button" class="btn secondary extra-remove" data-idx="${idx}">Odebrat</button>
@@ -309,6 +390,124 @@
       const input = document.getElementById(id);
       if (input) input.placeholder = text;
     });
+
+    const parentStreet = document.getElementById('id_parent_street');
+    const parentCity = document.getElementById('id_parent_city');
+    const parentZip = document.getElementById('id_parent_zip');
+    if (parentStreet && parentCity && parentZip) {
+      const listId = 'street-address-suggestions';
+      let dataList = document.getElementById(listId);
+      if (!dataList) {
+        dataList = document.createElement('datalist');
+        dataList.id = listId;
+        document.body.appendChild(dataList);
+      }
+      parentStreet.setAttribute('list', listId);
+
+      let itemsByLabel = {};
+      let timer = null;
+      const loadAddressSuggestions = async () => {
+        const q = (parentStreet.value || '').trim();
+        if (q.length < 4) {
+          dataList.innerHTML = '';
+          itemsByLabel = {};
+          return;
+        }
+        try {
+          const resp = await fetch(`/api/address-lookup/?q=${encodeURIComponent(q)}`);
+          const data = await resp.json();
+          const rows = data.results || [];
+          itemsByLabel = {};
+          dataList.innerHTML = rows.map((row) => {
+            itemsByLabel[row.label] = row;
+            return `<option value="${row.label}"></option>`;
+          }).join('');
+        } catch (err) {
+          dataList.innerHTML = '';
+          itemsByLabel = {};
+        }
+      };
+
+      const applyAddress = () => {
+        const selected = (parentStreet.value || '').trim();
+        const row = itemsByLabel[selected];
+        if (!row) return;
+        parentStreet.value = row.street || selected;
+        if (row.city) parentCity.value = row.city;
+        if (row.postcode) parentZip.value = String(row.postcode).replace(/\s+/g, '');
+      };
+
+      parentStreet.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(loadAddressSuggestions, 250);
+      });
+      parentStreet.addEventListener('change', applyAddress);
+      parentStreet.addEventListener('blur', applyAddress);
+    }
+
+    const consentModal = document.getElementById('consent-modal');
+    const consentTitle = document.getElementById('consent-modal-title');
+    const consentText = document.getElementById('consent-modal-text');
+    const consentConfig = {
+      vop: {
+        checkboxId: 'id_consent_vop',
+        title: 'VOP',
+        text: `{{ app_settings.consent_vop_text|default:"Souhlasím s VOP"|escapejs }}`,
+      },
+      gdpr: {
+        checkboxId: 'id_consent_gdpr',
+        title: 'GDPR',
+        text: `{{ app_settings.consent_gdpr_text|default:"Souhlasím se zpracováním osobních údajů (GDPR)"|escapejs }}`,
+      },
+      health: {
+        checkboxId: 'id_consent_health',
+        title: 'ZDRAVÍ',
+        text: `{{ app_settings.consent_health_text|default:"Potvrzuji vhodný zdravotní stav dítěte pro sportovní činnost"|escapejs }}`,
+      },
+    };
+    let activeConsent = null;
+
+    function closeConsentModal() {
+      activeConsent = null;
+      consentModal.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    function acceptConsent() {
+      if (!activeConsent) return closeConsentModal();
+      const cfg = consentConfig[activeConsent];
+      const cb = cfg ? document.getElementById(cfg.checkboxId) : null;
+      if (cb) cb.checked = true;
+      closeConsentModal();
+    }
+
+    document.querySelectorAll('.consent-open').forEach((link) => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const key = link.dataset.consent;
+        const cfg = consentConfig[key];
+        if (!cfg) return;
+        activeConsent = key;
+        consentTitle.textContent = cfg.title;
+        consentText.textContent = cfg.text || '';
+        consentModal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+      });
+    });
+
+    ['consent-back-top', 'consent-back-bottom'].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', closeConsentModal);
+    });
+    ['consent-accept-top', 'consent-accept-bottom'].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', acceptConsent);
+    });
+    if (consentModal) {
+      consentModal.addEventListener('click', (e) => {
+        if (e.target === consentModal) closeConsentModal();
+      });
+    }
 
     refreshPrimary();
   })();

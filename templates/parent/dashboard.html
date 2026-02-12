@@ -13,11 +13,41 @@
     border-top: 1px solid #eef1f4;
     padding-top: 12px;
     margin-top: 12px;
+    border-radius: 10px;
+    padding: 12px;
+    border: 1px solid #e8edf2;
   }
   .child-block:first-of-type {
-    border-top: 0;
     margin-top: 0;
-    padding-top: 0;
+  }
+  .child-theme-1 {
+    background: linear-gradient(180deg, rgba(18, 96, 156, 0.05), rgba(18, 96, 156, 0.02));
+    border-color: rgba(18, 96, 156, 0.25);
+  }
+  .child-theme-2 {
+    background: linear-gradient(180deg, rgba(198, 40, 40, 0.05), rgba(198, 40, 40, 0.02));
+    border-color: rgba(198, 40, 40, 0.24);
+  }
+  .child-theme-3 {
+    background: linear-gradient(180deg, rgba(95, 101, 112, 0.07), rgba(95, 101, 112, 0.02));
+    border-color: rgba(95, 101, 112, 0.28);
+  }
+  .child-badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    border-radius: 999px;
+    padding: 2px 8px;
+    margin-bottom: 6px;
+  }
+  .child-theme-1 .child-badge { background: #12609c; }
+  .child-theme-2 .child-badge { background: #a72525; }
+  .child-theme-3 .child-badge { background: #4b5563; }
+  @media (max-width: 900px) {
+    .child-block {
+      padding: 10px;
+    }
   }
   .charge-table {
     width: 100%;
@@ -75,7 +105,7 @@
     <a class="btn" href="/parent/profile/">Upravit údaje rodiče a člena</a>
     <a class="btn secondary" href="/registrace/">Přidat další dítě</a>
     {% if children %}
-      <a class="btn secondary" href="/parent/child/{{ children.0.id }}/#finance-history">Historie plateb</a>
+      <a class="btn secondary" href="/parent/child/{{ children.0.id }}/history/">Historie plateb</a>
     {% endif %}
   </div>
 
@@ -83,7 +113,8 @@
   {% if children %}
     <div class="parent-card">
       {% for child in children %}
-        <section class="child-block">
+        <section class="child-block {% cycle 'child-theme-1' 'child-theme-2' 'child-theme-3' %}">
+          <span class="child-badge">Dítě {{ forloop.counter }}</span>
           <strong>{{ child.first_name }} {{ child.last_name }}</strong>
           <div class="muted">VS: {{ child.variable_symbol }}</div>
           <div style="margin-top:6px;">
@@ -170,7 +201,7 @@
 
           <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn secondary" href="/parent/child/{{ child.id }}#dochazka-dite">Další</a>
-            <a class="btn secondary" href="/parent/child/{{ child.id }}/#finance-history">Historie plateb</a>
+            <a class="btn secondary" href="/parent/child/{{ child.id }}/history/">Historie plateb</a>
           </div>
         </section>
       {% endfor %}

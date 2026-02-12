@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% load formatting %}
+
+{% block content %}
+<style>
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .history-table th,
+  .history-table td {
+    text-align: left;
+    padding: 8px 6px;
+    border-bottom: 1px solid #e8edf2;
+    vertical-align: top;
+  }
+</style>
+
+<div class="card">
+  <h2>Historie plateb</h2>
+  <div class="muted" style="margin-bottom:10px;">
+    {{ child.first_name }} {{ child.last_name }} | VS: {{ child.variable_symbol }}
+  </div>
+
+  {% if entries %}
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Událost</th>
+          <th>Částka</th>
+          <th>Stav</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td>{{ entry.occurred_on|date:"d.m.Y" }}</td>
+            <td>
+              {{ entry.display_title }}
+              {% if entry.note %}
+                <div class="muted">{{ entry.note }}</div>
+              {% endif %}
+            </td>
+            <td>{{ entry.amount_czk|czk_int }} Kč</td>
+            <td>{{ entry.parent_status_label }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="muted">Bez záznamů plateb.</div>
+  {% endif %}
+</div>
+{% endblock %}
