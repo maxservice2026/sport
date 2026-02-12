@@ -1045,18 +1045,22 @@ def admin_child_edit(request, child_id):
 def admin_children_list(request):
     query = (request.GET.get('q') or '').strip()
     group_filters = [g for g in request.GET.getlist('groups') if g]
-    rows = _children_rows(query=query, group_filters=group_filters)
+    sort = (request.GET.get('sort') or 'name').strip()
+    direction = (request.GET.get('dir') or 'asc').strip().lower()
+    rows = _children_rows(query=query, group_filters=group_filters, sort=sort, direction=direction)
     return render(request, 'admin/children_list.html', {
         'rows': rows,
         'query': query,
         'group_filters': group_filters,
+        'sort': sort,
+        'direction': direction,
         'groups': Group.objects.select_related('sport').order_by('sport__name', 'name'),
         'groups_nav': _groups_nav(),
         'admin_wide_content': True,
     })
 
 
-def _children_rows(query='', group_filters=None):
+def _children_rows(query='', group_filters=None, sort='name', direction='asc'):
     query = (query or '').strip()
     group_filters = [str(v) for v in (group_filters or []) if str(v).strip()]
 
@@ -1095,13 +1099,34 @@ def _children_rows(query='', group_filters=None):
         if group_filters:
             memberships_for_date = [m for m in memberships if str(m.group_id) in group_filters]
         first_membership = memberships_for_date[0] if memberships_for_date else None
+        parent_name = ''
+        if child.parent:
+            parent_name = f"{child.parent.first_name} {child.parent.last_name}".strip()
+        groups_label = ', '.join(membership.group.name for membership in memberships) if memberships else ''
         rows.append({
             'child': child,
             'phone': child.parent.phone if child.parent else '',
             'birth_year': infer_birth_year(child),
             'joined_at': first_membership.registered_at.date() if first_membership else None,
             'memberships': memberships,
+            'parent_name': parent_name,
+            'groups_label': groups_label,
         })
+
+    sort_map = {
+        'name': lambda r: (
+            (r['child'].last_name or '').lower(),
+            (r['child'].first_name or '').lower(),
+        ),
+        'phone': lambda r: (r.get('phone') or ''),
+        'birth_year': lambda r: int(r['birth_year']) if str(r['birth_year']).isdigit() else 0,
+        'joined_at': lambda r: r.get('joined_at') or date.min,
+        'vs': lambda r: int(r['child'].variable_symbol) if str(r['child'].variable_symbol).isdigit() else str(r['child'].variable_symbol or ''),
+        'parent': lambda r: (r.get('parent_name') or '').lower(),
+        'groups': lambda r: (r.get('groups_label') or '').lower(),
+    }
+    key_fn = sort_map.get(sort, sort_map['name'])
+    rows.sort(key=key_fn, reverse=(direction == 'desc'))
 
     return rows
 
@@ -1110,7 +1135,9 @@ def _children_rows(query='', group_filters=None):
 def admin_children_export_xls(request):
     query = (request.GET.get('q') or '').strip()
     group_filters = [g for g in request.GET.getlist('groups') if g]
-    rows = _children_rows(query=query, group_filters=group_filters)
+    sort = (request.GET.get('sort') or 'name').strip()
+    direction = (request.GET.get('dir') or 'asc').strip().lower()
+    rows = _children_rows(query=query, group_filters=group_filters, sort=sort, direction=direction)
 
     response = HttpResponse(content_type='application/vnd.ms-excel; charset=utf-8')
     response['Content-Disposition'] = 'attachment; filename="deti_export.xls"'

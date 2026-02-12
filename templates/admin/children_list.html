@@ -44,6 +44,8 @@
 
 <section class="page-panel">
   <form id="children-filter" method="get" style="margin:12px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:end;">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ direction }}">
     <input type="text" name="q" placeholder="Hledat jméno, VS nebo skupinu" value="{{ query }}" style="max-width:260px;">
     <div>
       <label for="children-groups">Skupiny (můžete vybrat více)</label>
@@ -55,7 +57,7 @@
         {% endfor %}
       </select>
     </div>
-    <a class="btn" href="/admin/children/export.xls?q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Export XLS</a>
+    <a class="btn" href="/admin/children/export.xls?q={{ query|urlencode }}&sort={{ sort }}&dir={{ direction }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Export XLS</a>
     {% if query or group_filters %}
       <a class="btn secondary" href="/admin/children/">Zrušit filtr</a>
     {% endif %}
@@ -66,13 +68,27 @@
     <table class="children-table">
       <thead>
         <tr>
-          <th>Jméno</th>
-          <th>Telefon rodiče</th>
-          <th>Ročník</th>
-          <th>Zapojení do skupiny</th>
-          <th>VS</th>
-          <th>Rodič</th>
-          <th>Skupiny</th>
+          <th>
+            <a href="?sort=name&dir={% if sort == 'name' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Jméno{% if sort == 'name' %} {% if direction == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a>
+          </th>
+          <th>
+            <a href="?sort=phone&dir={% if sort == 'phone' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Telefon rodiče{% if sort == 'phone' %} {% if direction == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a>
+          </th>
+          <th>
+            <a href="?sort=birth_year&dir={% if sort == 'birth_year' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Ročník{% if sort == 'birth_year' %} {% if direction == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a>
+          </th>
+          <th>
+            <a href="?sort=joined_at&dir={% if sort == 'joined_at' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Zapojení do skupiny{% if sort == 'joined_at' %} {% if direction == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a>
+          </th>
+          <th>
+            <a href="?sort=vs&dir={% if sort == 'vs' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">VS{% if sort == 'vs' %} {% if direction == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a>
+          </th>
+          <th>
+            <a href="?sort=parent&dir={% if sort == 'parent' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Rodič{% if sort == 'parent' %} {% if direction == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a>
+          </th>
+          <th>
+            <a href="?sort=groups&dir={% if sort == 'groups' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query|urlencode }}{% for gid in group_filters %}&groups={{ gid }}{% endfor %}">Skupiny{% if sort == 'groups' %} {% if direction == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a>
+          </th>
           <th>Akce</th>
         </tr>
       </thead>
@@ -84,7 +100,7 @@
             <td>{{ row.birth_year }}</td>
             <td>{% if row.joined_at %}{{ row.joined_at|date:"d.m.Y" }}{% else %}-{% endif %}</td>
             <td>{{ row.child.variable_symbol }}</td>
-            <td>{{ row.child.parent.first_name }} {{ row.child.parent.last_name }}</td>
+            <td>{{ row.parent_name|default:"-" }}</td>
             <td>
               {% if row.memberships %}
                 {% for membership in row.memberships %}
