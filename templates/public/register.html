@@ -50,16 +50,22 @@
     line-height: 1.2;
   }
   .consents-compact {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
     margin-bottom: 10px;
   }
   .consent-item {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 8px;
     font-weight: 700;
+  }
+  .consent-item input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    flex: 0 0 auto;
   }
   .consent-item a {
     text-decoration: underline;

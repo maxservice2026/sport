@@ -41,6 +41,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       display: inline-block;
+      color: #fff;
     }
     main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
     .card { background: var(--card); padding: 16px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
@@ -53,7 +54,13 @@
     .btn.danger { background: var(--danger); }
     .form-row { margin-bottom: 10px; }
     label { display: block; font-weight: 600; margin-bottom: 4px; }
-    input, select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; }
+    input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+      width: 100%;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
     .muted { color: var(--muted); }
     .flash { background: #e9f5ff; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #c8dfef; }
     .flash.error { background: #ffe9e9; border-color: #f0bdbd; color: #9d1e1e; }
@@ -101,7 +108,8 @@
     body.mobile-preview .user-email {
       max-width: 100%;
       width: 100%;
-      color: rgba(255, 255, 255, 0.86);
+      color: #fff;
+      opacity: 0.96;
     }
     body.mobile-preview main { max-width: none; margin: 16px 0 0; padding: 0 12px 12px; }
     .mobile-mode-badge {
@@ -111,6 +119,15 @@
       border-radius: 6px;
       font-size: 12px;
       margin-right: 8px;
+    }
+    @media (max-width: 900px) {
+      main {
+        margin: 10px auto;
+        padding: 0 8px;
+      }
+      .card {
+        padding: 12px;
+      }
     }
     @media (max-width: 900px) {
       body.mobile-preview .phone-preview {
@@ -153,7 +170,7 @@
         <a href="?mobile=0">Vypnout náhled</a>
       {% endif %}
       {% if user.is_authenticated %}
-        <span class="user-email muted">{{ user.email }}</span>
+        <span class="user-email">{{ user.email }}</span>
         <a href="/logout/">Odhlásit</a>
       {% else %}
         <a href="/login/{% if request.mobile_preview %}?mobile=1{% endif %}">Přihlásit</a>
