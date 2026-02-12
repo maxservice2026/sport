@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <h2>Trenérský přehled</h2>
+  <p class="muted">Vyberte skupinu pro docházku.</p>
+  <ul>
+    {% for group in groups %}
+      <li>
+        <strong>{{ group }}</strong>
+        <a class="btn" href="/trainer/group/{{ group.id }}/attendance/">Docházka</a>
+      </li>
+    {% empty %}
+      <li class="muted">Nemáte přiřazené skupiny.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

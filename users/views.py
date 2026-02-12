@@ -1,0 +1,509 @@
+from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
+
+from django.contrib import messages
+from django.contrib.auth import login, logout
+from django.db.models import Count, Q
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
+
+from .forms import EmailAuthenticationForm, ParentProfileForm, TrainerCreateForm, TrainerUpdateForm
+from .utils import role_required
+from clubs.models import Group, Sport, Child, Membership, TrainerGroup, SaleCharge, ReceivedPayment
+from clubs.payments import build_payment_counter, consume_matching_payment
+from clubs.pricing import normalize_start_month, payable_months_count, prorated_amount, month_start
+from users.models import User
+from clubs.forms import ChildEditForm
+from attendance.models import TrainerAttendance, Attendance
+
+
+DAY_TO_WEEKDAY = {
+    'Po': 0,
+    'Út': 1,
+    'St': 2,
+    'Čt': 3,
+    'Pá': 4,
+    'So': 5,
+    'Ne': 6,
+}
+
+
+def _child_gender(child):
+    birth_number = (child.birth_number or '').strip()
+    if birth_number:
+        raw = birth_number.split('/')[0]
+        digits = ''.join(ch for ch in raw if ch.isdigit())
+        if len(digits) >= 4:
+            month_raw = int(digits[2:4])
+            if month_raw > 70 or month_raw > 50:
+                return 'female'
+            if month_raw > 20:
+                return 'male'
+            return 'female' if month_raw > 12 else 'male'
+
+    # Fallback for children without birth number (passport records).
+    name = (child.first_name or '').strip().lower()
+    if name.endswith('a'):
+        return 'female'
+    return 'male'
+
+
+def _group_training_dates_to_date(group, target_date):
+    if not group.start_date or not group.end_date:
+        return []
+    if group.start_date > group.end_date:
+        return []
+
+    end = min(group.end_date, target_date)
+    if end < group.start_date:
+        return []
+
+    allowed = {DAY_TO_WEEKDAY.get(day) for day in (group.training_days or []) if DAY_TO_WEEKDAY.get(day) is not None}
+    if not allowed:
+        allowed = set(range(7))
+
+    dates = []
+    cur = group.start_date
+    while cur <= end:
+        if cur.weekday() in allowed:
+            dates.append(cur)
+        cur += timedelta(days=1)
+    return dates
+
+
+def login_view(request):
+    if request.user.is_authenticated:
+        return redirect('home')
+
+    form = EmailAuthenticationForm(request, data=request.POST or None)
+    if request.method == 'POST':
+        if form.is_valid():
+            user = form.get_user()
+            login(request, user)
+            return redirect(request.GET.get('next') or 'home')
+        messages.error(request, 'Neplatný email nebo heslo.')
+
+    return render(request, 'accounts/login.html', {'form': form})
+
+
+def logout_view(request):
+    logout(request)
+    return redirect('login')
+
+
+def home(request):
+    if not request.user.is_authenticated:
+        return redirect('login')
+
+    if request.user.role == 'admin':
+        return redirect('admin_dashboard')
+    if request.user.role == 'trainer':
+        return redirect('trainer_dashboard')
+    return redirect('parent_dashboard')
+
+
+@role_required('admin')
+def admin_dashboard(request):
+    attendance_date_raw = (request.GET.get('attendance_date') or '').strip()
+    try:
+        attendance_date = date.fromisoformat(attendance_date_raw) if attendance_date_raw else date.today()
+    except ValueError:
+        attendance_date = date.today()
+
+    sport_count = Sport.objects.filter(groups__isnull=False).distinct().count()
+    group_count = Group.objects.count()
+    child_count = Child.objects.count()
+    trainer_count = TrainerGroup.objects.values('trainer_id').distinct().count()
+
+    memberships = list(
+        Membership.objects
+        .filter(active=True)
+        .select_related('group', 'attendance_option', 'child')
+        .order_by('id')
+    )
+
+    # Průměrná docházka přes všechna aktivní členství k zadanému datu.
+    memberships_by_group = {}
+    for membership in memberships:
+        memberships_by_group.setdefault(membership.group_id, []).append(membership)
+
+    total_expected_records = 0
+    total_present_records = 0
+    for group_id, group_memberships in memberships_by_group.items():
+        group = group_memberships[0].group
+        training_dates = _group_training_dates_to_date(group, attendance_date)
+        total_training_days = len(training_dates)
+        if total_training_days <= 0:
+            continue
+
+        child_ids = [m.child_id for m in group_memberships]
+        present_rows = (
+            Attendance.objects
+            .filter(
+                session__group_id=group_id,
+                session__date__in=training_dates,
+                child_id__in=child_ids,
+                present=True,
+            )
+            .values('child_id')
+            .annotate(cnt=Count('id'))
+        )
+        present_map = {row['child_id']: row['cnt'] for row in present_rows}
+        for membership in group_memberships:
+            present_count = present_map.get(membership.child_id, 0)
+            total_expected_records += total_training_days
+            total_present_records += present_count
+
+    attendance_average_percent = int(round((total_present_records / total_expected_records) * 100)) if total_expected_records else 0
+
+    # Očekávané příspěvky a již uhrazené příspěvky (spárované VS + částka).
+    expected_total = Decimal('0.00')
+    paid_total = Decimal('0.00')
+    payment_counter = build_payment_counter(ReceivedPayment.objects.all().only('variable_symbol', 'amount_czk'))
+    for membership in memberships:
+        base_price = membership.attendance_option.price_czk if membership.attendance_option else Decimal('0.00')
+        selected_start = membership.billing_start_month
+        if not selected_start and membership.registered_at:
+            selected_start = month_start(membership.registered_at.date())
+        effective_start = normalize_start_month(
+            membership.group,
+            selected_start_month=selected_start,
+            fallback_date=date.today(),
+        )
+        payable_months = payable_months_count(
+            membership.group,
+            selected_start_month=effective_start,
+            fallback_date=date.today(),
+        )
+        due_amount = prorated_amount(base_price, payable_months)
+        expected_total += due_amount
+        if consume_matching_payment(payment_counter, membership.child.variable_symbol, due_amount):
+            paid_total += due_amount
+
+    boys_count = 0
+    girls_count = 0
+    for child in Child.objects.only('birth_number', 'first_name'):
+        if _child_gender(child) == 'female':
+            girls_count += 1
+        else:
+            boys_count += 1
+
+    return render(request, 'admin/dashboard.html', {
+        'sport_count': sport_count,
+        'group_count': group_count,
+        'child_count': child_count,
+        'trainer_count': trainer_count,
+        'boys_count': boys_count,
+        'girls_count': girls_count,
+        'attendance_date': attendance_date,
+        'attendance_average_percent': attendance_average_percent,
+        'contributions_expected': expected_total,
+        'contributions_paid': paid_total,
+        'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
+    })
+
+
+@role_required('admin')
+def admin_trainer_list(request):
+    trainers = User.objects.filter(role='trainer').order_by('last_name', 'first_name')
+    return render(request, 'admin/trainers_list.html', {
+        'trainers': trainers,
+        'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
+    })
+
+
+@role_required('admin')
+def admin_trainer_create(request):
+    form = TrainerCreateForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Trenér byl vytvořen.')
+        return redirect('admin_trainers')
+    return render(request, 'admin/trainer_form.html', {
+        'form': form,
+        'is_edit': False,
+        'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
+    })
+
+
+@role_required('admin')
+def admin_trainer_edit(request, user_id):
+    trainer = get_object_or_404(User, id=user_id, role='trainer')
+    form = TrainerUpdateForm(request.POST or None, instance=trainer)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Trenér byl uložen.')
+        return redirect('admin_trainers')
+    return render(request, 'admin/trainer_form.html', {
+        'form': form,
+        'trainer': trainer,
+        'is_edit': True,
+        'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
+    })
+
+
+@role_required('admin')
+def admin_economics(request):
+    period = request.GET.get('period') or request.POST.get('period') or 'current_month'
+    period_choices = [
+        ('current_month', 'Aktuální měsíc'),
+        ('last_month', 'Minulý měsíc'),
+        ('last_year', 'Minulý rok'),
+    ]
+    allowed_periods = {value for value, _ in period_choices}
+    if period not in allowed_periods:
+        period = 'current_month'
+
+    today = date.today()
+    start_current_month = date(today.year, today.month, 1)
+    if period == 'current_month':
+        range_start, range_end = start_current_month, today
+    elif period == 'last_month':
+        last_month_end = start_current_month - timedelta(days=1)
+        range_start = date(last_month_end.year, last_month_end.month, 1)
+        range_end = last_month_end
+    else:
+        range_start = date(today.year - 1, 1, 1)
+        range_end = date(today.year - 1, 12, 31)
+
+    if request.method == 'POST':
+        action = request.POST.get('action') or 'trainer_update'
+        if action == 'sale_add':
+            child_id = request.POST.get('sale_child_id')
+            title = (request.POST.get('sale_title') or '').strip()
+            amount_raw = (request.POST.get('sale_amount_czk') or '').strip()
+            note = (request.POST.get('sale_note') or '').strip()
+
+            child = get_object_or_404(Child, id=child_id)
+            if not title:
+                messages.error(request, 'Vyplňte název prodejní položky.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+            try:
+                amount = Decimal(amount_raw)
+            except Exception:
+                messages.error(request, 'Částka musí být číslo.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+            if amount <= 0:
+                messages.error(request, 'Částka musí být větší než 0.')
+                return redirect(f"{reverse('admin_economics')}?period={period}")
+
+            SaleCharge.objects.create(
+                child=child,
+                title=title,
+                amount_czk=amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+                note=note,
+                created_by=request.user,
+            )
+            messages.success(request, 'Prodejní položka byla vytvořena.')
+            return redirect(f"{reverse('admin_economics')}?period={period}")
+
+        trainer_id = request.POST.get('trainer_id')
+        trainer = get_object_or_404(User, id=trainer_id, role='trainer')
+        payment_mode = request.POST.get('trainer_payment_mode')
+        tax_enabled = request.POST.get('trainer_tax_15_enabled') == 'on'
+        rate_raw = request.POST.get('trainer_rate_per_record', '0').strip()
+
+        allowed_modes = {choice[0] for choice in User.PAYMENT_CHOICES}
+        if payment_mode not in allowed_modes:
+            messages.error(request, 'Neplatný způsob odměny.')
+            return redirect(f"{reverse('admin_economics')}?period={period}")
+
+        try:
+            rate = int(rate_raw)
+        except ValueError:
+            messages.error(request, 'Částka za záznam musí být celé číslo.')
+            return redirect(f"{reverse('admin_economics')}?period={period}")
+        if rate < 0:
+            messages.error(request, 'Částka za záznam nemůže být záporná.')
+            return redirect(f"{reverse('admin_economics')}?period={period}")
+
+        trainer.trainer_payment_mode = payment_mode
+        trainer.trainer_tax_15_enabled = tax_enabled
+        trainer.trainer_rate_per_record = rate
+        trainer.save(update_fields=['trainer_payment_mode', 'trainer_tax_15_enabled', 'trainer_rate_per_record'])
+        return redirect(f"{reverse('admin_economics')}?period={period}")
+
+    attendance_filter = Q(
+        trainer_attendance_records__present=True,
+        trainer_attendance_records__session__date__gte=range_start,
+        trainer_attendance_records__session__date__lte=range_end,
+    )
+
+    trainers = (
+        User.objects
+        .filter(role='trainer')
+        .annotate(
+            attendance_count=Count(
+                'trainer_attendance_records',
+                filter=attendance_filter,
+            )
+        )
+        .order_by('last_name', 'first_name', 'email')
+    )
+
+    trainers = list(trainers)
+    trainer_ids = [trainer.id for trainer in trainers]
+    records_map = {trainer_id: [] for trainer_id in trainer_ids}
+    if trainer_ids:
+        records = (
+            TrainerAttendance.objects
+            .filter(
+                trainer_id__in=trainer_ids,
+                present=True,
+                session__date__gte=range_start,
+                session__date__lte=range_end,
+            )
+            .select_related('trainer', 'session__group', 'session__group__sport')
+            .order_by('-session__date', '-id')
+        )
+        for record in records:
+            group = record.session.group
+            records_map[record.trainer_id].append({
+                'date': record.session.date,
+                'trainer_name': f"{record.trainer.first_name} {record.trainer.last_name}".strip() or record.trainer.email,
+                'group_name': f"{group.sport.name} - {group.name}",
+            })
+
+    rows = []
+    total_records = 0
+    total_gross = Decimal('0.00')
+    total_tax = Decimal('0.00')
+    total_net = Decimal('0.00')
+    for trainer in trainers:
+        gross = Decimal(trainer.trainer_rate_per_record) * Decimal(trainer.attendance_count)
+        if trainer.trainer_tax_15_enabled:
+            tax = (gross * Decimal('0.15')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        else:
+            tax = Decimal('0.00')
+        net = gross - tax
+        total_records += trainer.attendance_count
+        total_gross += gross
+        total_tax += tax
+        total_net += net
+        rows.append({
+            'trainer': trainer,
+            'attendance_count': trainer.attendance_count,
+            'gross': gross,
+            'tax': tax,
+            'net': net,
+            'records': records_map.get(trainer.id, []),
+        })
+
+    children = Child.objects.select_related('parent').order_by('last_name', 'first_name')
+    charges_for_match = list(
+        SaleCharge.objects
+        .select_related('child', 'child__parent')
+        .order_by('created_at', 'id')
+    )
+    payment_counter = build_payment_counter(ReceivedPayment.objects.all().only('variable_symbol', 'amount_czk'))
+    charge_paid_map = {}
+    for charge in charges_for_match:
+        charge_paid_map[charge.id] = consume_matching_payment(
+            payment_counter,
+            charge.child.variable_symbol,
+            charge.amount_czk,
+        )
+    sales = list(
+        SaleCharge.objects
+        .select_related('child', 'child__parent')
+        .order_by('-created_at', '-id')
+    )
+    for sale in sales:
+        sale.paid = charge_paid_map.get(sale.id, False)
+
+    return render(request, 'admin/economics.html', {
+        'rows': rows,
+        'period': period,
+        'period_choices': period_choices,
+        'range_start': range_start,
+        'range_end': range_end,
+        'payment_choices': User.PAYMENT_CHOICES,
+        'total_records': total_records,
+        'total_gross': total_gross,
+        'total_tax': total_tax,
+        'total_net': total_net,
+        'children': children,
+        'sales': sales,
+        'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
+        'admin_wide_content': True,
+    })
+
+
+@role_required('trainer')
+def trainer_dashboard(request):
+    groups = Group.objects.filter(trainers__id=request.user.id).order_by('name')
+    return render(request, 'trainer/dashboard.html', {'groups': groups})
+
+
+@role_required('parent')
+def parent_dashboard(request):
+    children = list(
+        Child.objects
+        .filter(parent=request.user)
+        .prefetch_related('memberships__group', 'memberships__attendance_option')
+    )
+    charges_qs = (
+        SaleCharge.objects
+        .filter(child__parent=request.user)
+        .select_related('child')
+        .order_by('created_at', 'id')
+    )
+    payment_counter = build_payment_counter(ReceivedPayment.objects.all().only('variable_symbol', 'amount_czk'))
+    charge_paid_map = {}
+    for charge in charges_qs:
+        charge_paid_map[charge.id] = consume_matching_payment(
+            payment_counter,
+            charge.child.variable_symbol,
+            charge.amount_czk,
+        )
+
+    child_charges = {}
+    for charge in charges_qs:
+        charge.paid = charge_paid_map.get(charge.id, False)
+        child_charges.setdefault(charge.child_id, []).append(charge)
+
+    for child in children:
+        child.charge_rows = child_charges.get(child.id, [])
+
+    return render(request, 'parent/dashboard.html', {
+        'children': children,
+    })
+
+
+@role_required('parent')
+def parent_profile(request):
+    form = ParentProfileForm(request.POST or None, instance=request.user)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Profil byl uložen.')
+        return redirect('parent_dashboard')
+    return render(request, 'parent/profile.html', {'form': form})
+
+
+@role_required('parent')
+def parent_child_detail(request, child_id):
+    child = get_object_or_404(Child, id=child_id, parent=request.user)
+    form = ChildEditForm(request.POST or None, instance=child)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Údaje dítěte byly uloženy.')
+        return redirect('parent_dashboard')
+    memberships = Membership.objects.filter(child=child).select_related('group', 'attendance_option')
+    sale_charges = list(
+        SaleCharge.objects
+        .filter(child=child)
+        .order_by('created_at', 'id')
+    )
+    payment_counter = build_payment_counter(ReceivedPayment.objects.all().only('variable_symbol', 'amount_czk'))
+    for charge in sale_charges:
+        charge.paid = consume_matching_payment(
+            payment_counter,
+            child.variable_symbol,
+            charge.amount_czk,
+        )
+    return render(request, 'parent/child_detail.html', {
+        'child': child,
+        'form': form,
+        'memberships': memberships,
+        'sale_charges': sale_charges,
+    })

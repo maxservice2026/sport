@@ -1,0 +1,205 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  .attendance-children-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .attendance-children-grid form {
+    min-width: 0;
+  }
+  .attendance-tile {
+    min-height: 108px;
+    border: none;
+    border-radius: 10px;
+    padding: 8px 6px;
+    line-height: 1.2;
+  }
+  .attendance-tile .tile-name {
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .attendance-tile .tile-percent {
+    margin-top: 4px;
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .birthday-badge {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 18px;
+    vertical-align: middle;
+  }
+  @media (max-width: 640px) {
+    .attendance-children-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .attendance-tile {
+      min-height: 96px;
+      padding: 6px 4px;
+    }
+    .attendance-tile .tile-name {
+      font-size: 13px;
+    }
+    .attendance-tile .tile-percent {
+      font-size: 13px;
+      margin-top: 3px;
+    }
+    .birthday-badge {
+      font-size: 14px;
+      margin-left: 4px;
+    }
+  }
+</style>
+
+<div class="card">
+  <h2>Docházka: {{ group }}</h2>
+  <form id="attendance-filter" method="get" style="margin-bottom:12px;">
+    <label>Datum</label>
+    {% if session_options %}
+      <select name="date">
+        {% for opt in session_options %}
+          <option value="{{ opt.value }}" {% if opt.value == session_date|date:'Y-m-d' %}selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <div class="muted">Skupina nemá nastavené období nebo tréninkové dny.</div>
+    {% endif %}
+  </form>
+
+  <h3>Docházka trenéra</h3>
+  <div class="grid" style="margin-bottom:16px;">
+    {% for trainer_tile in trainer_tiles %}
+      <form method="post" class="attendance-mark-form">
+        {% csrf_token %}
+        <input type="hidden" name="trainer_id" value="{{ trainer_tile.trainer.id }}" />
+        <input type="hidden" name="date" value="{{ session_date|date:'Y-m-d' }}" />
+        <button type="submit" class="tile {% if trainer_tile.present %}green{% else %}red{% endif %}"
+                style="width:100%;border:none;outline:2px solid #1b3a57;"
+                {% if not can_mark %}disabled{% endif %}>
+          <div><strong>{{ trainer_tile.label }}</strong></div>
+          <div>Trenér</div>
+          <div>{{ trainer_tile.percent }} %</div>
+        </button>
+      </form>
+    {% empty %}
+      <p class="muted">Ke skupině není přiřazen trenér.</p>
+    {% endfor %}
+  </div>
+
+  <h3>Docházka dětí</h3>
+  <div class="attendance-children-grid">
+    {% for tile in tiles %}
+      <form method="post" class="attendance-mark-form">
+        {% csrf_token %}
+        <input type="hidden" name="child_id" value="{{ tile.child.id }}" />
+        <input type="hidden" name="date" value="{{ session_date|date:'Y-m-d' }}" />
+        <button type="submit" class="tile attendance-tile {% if tile.present %}green{% else %}red{% endif %}"
+                data-parent-phone="{{ tile.parent_phone|default:'' }}"
+                style="width:100%;"
+                {% if not can_mark %}disabled{% endif %}>
+          <div class="tile-name">
+            {{ tile.child.first_name }} {{ tile.child.last_name }}
+            {% if tile.is_birthday %}
+              <span class="birthday-badge" title="Dnes má narozeniny">🎈</span>
+            {% endif %}
+          </div>
+          <div class="tile-percent">{{ tile.percent }} %</div>
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+</div>
+<script>
+  (function () {
+    const form = document.getElementById('attendance-filter');
+    if (!form) return;
+    form.querySelectorAll('select').forEach((sel) => {
+      sel.addEventListener('change', () => form.submit());
+    });
+  })();
+
+  (function () {
+    const STORAGE_KEY = 'attendance-scroll:' + window.location.pathname;
+    const phoneScreen = document.querySelector('.phone-screen');
+    const getScrollTop = () => phoneScreen ? phoneScreen.scrollTop : window.scrollY;
+    const setScrollTop = (value) => {
+      if (phoneScreen) {
+        phoneScreen.scrollTop = value;
+      } else {
+        window.scrollTo(0, value);
+      }
+    };
+
+    const storedY = sessionStorage.getItem(STORAGE_KEY);
+    if (storedY !== null) {
+      const y = parseInt(storedY, 10);
+      if (!Number.isNaN(y)) {
+        window.requestAnimationFrame(() => setScrollTop(y));
+      }
+      sessionStorage.removeItem(STORAGE_KEY);
+    }
+
+    document.querySelectorAll('.attendance-mark-form').forEach((formEl) => {
+      formEl.addEventListener('submit', () => {
+        sessionStorage.setItem(STORAGE_KEY, String(getScrollTop()));
+      });
+    });
+  })();
+
+  (function () {
+    const LONG_PRESS_MS = 3000;
+
+    function bindLongPress(button) {
+      const rawPhone = (button.dataset.parentPhone || '').trim();
+      if (!rawPhone) return;
+
+      const phone = rawPhone.replace(/\s+/g, '');
+      let timer = null;
+      let longPressTriggered = false;
+
+      const startPress = () => {
+        longPressTriggered = false;
+        timer = window.setTimeout(() => {
+          longPressTriggered = true;
+          window.location.href = 'tel:' + phone;
+        }, LONG_PRESS_MS);
+      };
+
+      const cancelPress = () => {
+        if (timer) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+      };
+
+      if (window.PointerEvent) {
+        button.addEventListener('pointerdown', startPress);
+        button.addEventListener('pointerup', cancelPress);
+        button.addEventListener('pointerleave', cancelPress);
+        button.addEventListener('pointercancel', cancelPress);
+      } else {
+        button.addEventListener('mousedown', startPress);
+        button.addEventListener('mouseup', cancelPress);
+        button.addEventListener('mouseleave', cancelPress);
+        button.addEventListener('touchstart', startPress, { passive: true });
+        button.addEventListener('touchend', cancelPress);
+        button.addEventListener('touchcancel', cancelPress);
+      }
+
+      button.addEventListener('click', (event) => {
+        if (longPressTriggered) {
+          event.preventDefault();
+          event.stopPropagation();
+          longPressTriggered = false;
+        }
+      });
+    }
+
+    document.querySelectorAll('.attendance-tile').forEach(bindLongPress);
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<section class="page-hero">
+  <h2>Přijaté platby</h2>
+  <p>Ruční evidence příchozích plateb na účet klubu.</p>
+</section>
+
+<section class="page-panel">
+  <h3>Přidat přijatou platbu</h3>
+  <form method="post" style="display:grid;grid-template-columns:170px 170px 160px 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:14px;">
+    {% csrf_token %}
+    <div>
+      <label>{{ form.received_date.label }}</label>
+      {{ form.received_date }}
+      {{ form.received_date.errors }}
+    </div>
+    <div>
+      <label>{{ form.variable_symbol.label }}</label>
+      {{ form.variable_symbol }}
+      {{ form.variable_symbol.errors }}
+    </div>
+    <div>
+      <label>{{ form.amount_czk.label }}</label>
+      {{ form.amount_czk }}
+      {{ form.amount_czk.errors }}
+    </div>
+    <div>
+      <label>{{ form.sender_name.label }}</label>
+      {{ form.sender_name }}
+      {{ form.sender_name.errors }}
+    </div>
+    <div>
+      <label>{{ form.note.label }}</label>
+      {{ form.note }}
+      {{ form.note.errors }}
+    </div>
+    <button class="btn" type="submit">Uložit</button>
+  </form>
+
+  <div class="table-wrap">
+    <table style="width:100%;border-collapse:collapse;min-width:900px;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:8px;">Datum</th>
+          <th style="padding:8px;">VS</th>
+          <th style="padding:8px;">Částka (Kč)</th>
+          <th style="padding:8px;">Odesílatel</th>
+          <th style="padding:8px;">Poznámka</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for payment in payments %}
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:8px;">{{ payment.received_date|date:"d.m.Y" }}</td>
+            <td style="padding:8px;">{{ payment.variable_symbol }}</td>
+            <td style="padding:8px;">{{ payment.amount_czk }}</td>
+            <td style="padding:8px;">{{ payment.sender_name|default:"-" }}</td>
+            <td style="padding:8px;">{{ payment.note|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" style="padding:10px;" class="muted">Zatím žádné platby.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

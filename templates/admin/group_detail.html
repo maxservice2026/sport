@@ -1,0 +1,224 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<style>
+  .group-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: end;
+    margin-bottom: 8px;
+  }
+  .group-meta {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    color: #5f6570;
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+  .dense-controls {
+    display: grid;
+    grid-template-columns: 260px 290px auto;
+    gap: 8px;
+    align-items: end;
+    margin-bottom: 10px;
+  }
+  .children-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 1020px;
+    font-size: 14px;
+  }
+  .children-table th,
+  .children-table td {
+    padding: 6px;
+    border-bottom: 1px solid #eef1f4;
+    vertical-align: middle;
+  }
+  .children-table th { text-align: left; }
+  .variant-select {
+    min-width: 160px;
+    max-width: 220px;
+    width: 100%;
+    font-size: 13px;
+    padding: 5px;
+  }
+  .group-options {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #eceff3;
+  }
+  @media (max-width: 1080px) {
+    .dense-controls {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="card">
+  <div class="group-head">
+    <h2 style="margin:0;">{{ group.name }}</h2>
+    <a class="btn" href="/admin/groups/{{ group.id }}/edit/">Upravit skupinu</a>
+  </div>
+  <div class="group-meta">
+    <span><strong>Sport:</strong> {{ group.sport.name }}</span>
+    <span><strong>Dny tréninků:</strong> {% if group.training_days %}{{ group.training_days|join:", " }}{% else %}-{% endif %}</span>
+  </div>
+
+  <h3 style="margin-top:8px;">Registrované děti</h3>
+  <form method="get" style="margin:8px 0 10px;max-width:340px;">
+    <label for="group-search">Hledej</label>
+    <input id="group-search" type="text" name="q" value="{{ query }}" placeholder="Jméno nebo variabilní symbol">
+  </form>
+
+  {% if rows %}
+    <form method="post" id="bulk-actions-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="bulk">
+      <input type="hidden" name="q" value="{{ query }}">
+
+      <div class="dense-controls">
+        <div>
+          <label>Akce</label>
+          <select name="bulk_action" id="bulk-action">
+            <option value="">- vyberte akci -</option>
+            <option value="move">Přesun do jiné skupiny</option>
+            <option value="copy">Kopíruj do jiné skupiny</option>
+            <option value="deactivate">Ukončit činnost</option>
+            <option value="delete">Smazat dítě</option>
+          </select>
+        </div>
+        <div id="target-group-wrap" style="display:none;">
+          <label>Cílová skupina</label>
+          <select name="target_group">
+            <option value="">- vyberte skupinu -</option>
+            {% for target in target_groups %}
+              <option value="{{ target.id }}">{{ target.sport.name }} - {{ target.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn secondary" type="submit">Provést akci</button>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table class="children-table">
+          <thead>
+            <tr>
+              <th style="width:32px;"><input type="checkbox" id="select-all"></th>
+              <th>Jméno</th>
+              <th>Telefon</th>
+              <th>VS</th>
+              <th>Identifikace</th>
+              <th>Varianta</th>
+              <th>Docházka %</th>
+              <th>Akce</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td><input type="checkbox" name="selected_memberships" value="{{ row.membership.id }}" class="row-check"></td>
+                <td>{{ row.membership.child.first_name }} {{ row.membership.child.last_name }}</td>
+                <td>{{ row.phone|default:"-" }}</td>
+                <td>{{ row.membership.child.variable_symbol }}</td>
+                <td>
+                  {% if row.membership.child.birth_number %}
+                    {{ row.membership.child.birth_number }}
+                  {% elif row.membership.child.passport_number %}
+                    {{ row.membership.child.passport_number }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  <select class="attendance-option-select variant-select" data-membership-id="{{ row.membership.id }}">
+                    <option value="">- vyberte -</option>
+                    {% for opt in options %}
+                      <option value="{{ opt.id }}" {% if row.membership.attendance_option and row.membership.attendance_option.id == opt.id %}selected{% endif %}>{{ opt.name }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td>{{ row.attendance_percent }} %</td>
+                <td><a class="btn secondary" href="/admin/children/{{ row.membership.child.id }}/">Upravit dítě</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  {% else %}
+    <p class="muted">Ve skupině nejsou žádné děti pro zadaný filtr.</p>
+  {% endif %}
+
+  <div class="group-options">
+    <h3>Docházkové varianty</h3>
+    {% if group.attendance_options.all %}
+      <ul>
+        {% for opt in group.attendance_options.all %}
+          <li>{{ opt.name }} - {{ opt.frequency_per_week }}x týdně - {{ opt.price_czk }} Kč</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">Zatím žádné varianty.</p>
+    {% endif %}
+  </div>
+</div>
+
+<form method="post" id="variant-update-form" style="display:none;">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="update_variant">
+  <input type="hidden" name="membership_id" id="variant-membership-id">
+  <input type="hidden" name="attendance_option" id="variant-option-id">
+  <input type="hidden" name="q" value="{{ query }}">
+</form>
+
+<script>
+  (function () {
+    const searchInput = document.getElementById('group-search');
+    if (!searchInput) return;
+    let timer = null;
+    searchInput.addEventListener('input', function () {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        searchInput.form.submit();
+      }, 350);
+    });
+  })();
+
+  (function () {
+    const action = document.getElementById('bulk-action');
+    const wrap = document.getElementById('target-group-wrap');
+    if (!action || !wrap) return;
+    const sync = () => {
+      wrap.style.display = (action.value === 'move' || action.value === 'copy') ? 'block' : 'none';
+    };
+    action.addEventListener('change', sync);
+    sync();
+  })();
+
+  (function () {
+    const selectAll = document.getElementById('select-all');
+    if (!selectAll) return;
+    selectAll.addEventListener('change', function () {
+      document.querySelectorAll('.row-check').forEach((el) => {
+        el.checked = selectAll.checked;
+      });
+    });
+  })();
+
+  (function () {
+    const form = document.getElementById('variant-update-form');
+    const membershipInput = document.getElementById('variant-membership-id');
+    const optionInput = document.getElementById('variant-option-id');
+    if (!form || !membershipInput || !optionInput) return;
+    document.querySelectorAll('.attendance-option-select').forEach((select) => {
+      select.addEventListener('change', () => {
+        membershipInput.value = select.dataset.membershipId;
+        optionInput.value = select.value;
+        form.submit();
+      });
+    });
+  })();
+</script>
+{% endblock %}

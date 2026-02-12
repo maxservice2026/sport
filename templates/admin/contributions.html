@@ -1,0 +1,95 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<section class="page-hero">
+  <h2>Příspěvky</h2>
+  <p>Přehled aktivních registrací, variant a částek k úhradě.</p>
+</section>
+
+<section class="page-panel">
+  <p style="margin:0 0 10px;">
+    <a class="btn secondary" href="/admin/payments/">Přijaté platby</a>
+  </p>
+  <form method="get" style="margin:10px 0 14px;max-width:420px;">
+    <label for="contrib-search">Hledej</label>
+    <input id="contrib-search" type="text" name="q" value="{{ query }}" placeholder="Jméno nebo variabilní symbol">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ direction }}">
+  </form>
+
+  <div class="table-wrap">
+    <table style="width:100%;border-collapse:collapse;min-width:1100px;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:8px;"><a href="?sort=name&dir={% if sort == 'name' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Jméno</a></th>
+          <th style="padding:8px;"><a href="?sort=phone&dir={% if sort == 'phone' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Telefon</a></th>
+          <th style="padding:8px;"><a href="?sort=vs&dir={% if sort == 'vs' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">VS</a></th>
+          <th style="padding:8px;"><a href="?sort=birth_number&dir={% if sort == 'birth_number' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Rodné číslo</a></th>
+          <th style="padding:8px;"><a href="?sort=group&dir={% if sort == 'group' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Skupina</a></th>
+          <th style="padding:8px;"><a href="?sort=option&dir={% if sort == 'option' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Varianta</a></th>
+          <th style="padding:8px;"><a href="?sort=amount&dir={% if sort == 'amount' and direction == 'asc' %}desc{% else %}asc{% endif %}&q={{ query }}">Plná cena (Kč)</a></th>
+          <th style="padding:8px;">Zařazení od</th>
+          <th style="padding:8px;">Účtováno měsíců</th>
+          <th style="padding:8px;">K úhradě (Kč)</th>
+          <th style="padding:8px;">Uhrazeno</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:8px;">{{ row.child.first_name }} {{ row.child.last_name }}</td>
+            <td style="padding:8px;">{{ row.child.parent.phone|default:"-" }}</td>
+            <td style="padding:8px;">{{ row.child.variable_symbol }}</td>
+            <td style="padding:8px;">{{ row.child.birth_number|default:"-" }}</td>
+            <td style="padding:8px;">{{ row.group.sport.name }} - {{ row.group.name }}</td>
+            <td style="padding:8px;">{% if row.attendance_option %}{{ row.attendance_option.name }}{% else %}-{% endif %}</td>
+            <td style="padding:8px;">
+              {% if row.attendance_option %}
+                {{ row.base_price }}
+              {% else %}
+                0
+              {% endif %}
+            </td>
+            <td style="padding:8px;">{{ row.effective_start|date:"m/Y" }}</td>
+            <td style="padding:8px;">{{ row.payable_months }}/{{ full_period_months }}</td>
+            <td style="padding:8px;"><strong>{{ row.due_amount }}</strong></td>
+            <td style="padding:8px;">
+              {% if row.paid %}
+                <span title="Uhrazeno" style="color:#188b4a;font-size:18px;line-height:1;">●</span>
+              {% else %}
+                <span title="Neuhrazeno" style="color:#b0b7c3;font-size:18px;line-height:1;">●</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="11" style="padding:10px;" class="muted">Žádné záznamy.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      {% if rows %}
+      <tfoot>
+        <tr style="border-top:2px solid #ddd;font-weight:700;">
+          <td colspan="10" style="padding:10px;text-align:right;">Celkem k úhradě</td>
+          <td style="padding:10px;">{{ total_due }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</section>
+
+<script>
+  (function () {
+    const input = document.getElementById('contrib-search');
+    if (!input) return;
+    let timer = null;
+    input.addEventListener('input', function () {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        input.form.submit();
+      }, 350);
+    });
+  })();
+</script>
+{% endblock %}

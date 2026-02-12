@@ -1,0 +1,242 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<style>
+  .training-days-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: center;
+    margin-top: 4px;
+  }
+  .training-day-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid #d7dde5;
+    border-radius: 8px;
+    background: #fff;
+    line-height: 1;
+  }
+  .training-day-item input[type="checkbox"] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+  }
+  .training-day-item span {
+    font-weight: 600;
+    color: #1a1f26;
+  }
+  .blocked-panel {
+    margin-top: 14px;
+    border: 1px solid #f3c6c6;
+    background: #fff7f7;
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .blocked-panel h4 {
+    margin: 0 0 8px;
+    color: #a11818;
+  }
+  .blocked-panel .summary {
+    margin: 0 0 10px;
+    padding-left: 18px;
+  }
+  .blocked-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid #f1dede;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .blocked-panel th,
+  .blocked-panel td {
+    text-align: left;
+    padding: 7px 8px;
+    border-bottom: 1px solid #f2e5e5;
+    vertical-align: middle;
+  }
+</style>
+
+<div class="card">
+  <h2>{% if is_edit %}Upravit skupinu{% else %}Nová skupina{% endif %}</h2>
+
+  <form method="post">
+    {% csrf_token %}
+
+    {{ form.non_field_errors }}
+
+    <div class="form-row">
+      <label>Sport</label>
+      {{ form.sport }}
+      {{ form.sport.errors }}
+    </div>
+
+    <div class="form-row">
+      <label>Název skupiny</label>
+      {{ form.name }}
+      {{ form.name.errors }}
+    </div>
+
+    <div class="form-row">
+      <label>Začátek skupiny</label>
+      {{ form.start_date }}
+      {{ form.start_date.errors }}
+    </div>
+    <div class="form-row">
+      <label>Konec skupiny</label>
+      {{ form.end_date }}
+      {{ form.end_date.errors }}
+    </div>
+
+    <div class="form-row">
+      <label>Dny tréninků</label>
+      <div class="training-days-inline">
+        {% for checkbox in form.training_days %}
+          <label class="training-day-item">
+            {{ checkbox.tag }}
+            <span>{{ checkbox.choice_label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      {{ form.training_days.errors }}
+    </div>
+
+    <div class="form-row">
+      <label>Trenéři</label>
+      {{ form.trainers }}
+      {{ form.trainers.errors }}
+    </div>
+
+    <h3>Docházkové varianty (max 5)</h3>
+    {{ formset.management_form }}
+    {% if formset.non_form_errors %}
+      <div class="form-errors" style="color:#b00020;margin:8px 0;">{{ formset.non_form_errors }}</div>
+    {% endif %}
+    {% if formset.errors %}
+      <div class="form-errors" style="color:#b00020;margin:8px 0;">
+        <strong>Chyby ve variantách:</strong>
+        {% for option_form in formset %}
+          {% if option_form.errors %}
+            <div>
+              Řádek {{ forloop.counter }}:
+              {% for field, errors in option_form.errors.items %}
+                {% if field == '__all__' %}
+                  {{ errors|join:", " }}
+                {% else %}
+                  {{ field }} – {{ errors|join:", " }}
+                {% endif %}
+                {% if not forloop.last %}; {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:6px;">Název</th>
+          <th style="padding:6px;">Frekvence / týden</th>
+          <th style="padding:6px;">Cena (Kč)</th>
+          <th style="padding:6px;">Smazat</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for option_form in formset %}
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:6px;">
+              {{ option_form.id }}
+              {{ option_form.name }}
+              {{ option_form.name.errors }}
+              {{ option_form.non_field_errors }}
+            </td>
+            <td style="padding:6px;">
+              {{ option_form.frequency_per_week }}
+              {{ option_form.frequency_per_week.errors }}
+            </td>
+            <td style="padding:6px;">
+              {{ option_form.price_czk }}
+              {{ option_form.price_czk.errors }}
+            </td>
+            <td style="padding:6px;">{% if option_form.DELETE %}{{ option_form.DELETE }}{% else %}-{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if blocked_memberships %}
+      <div class="blocked-panel">
+        <h4>Smazání varianty je zablokováno</h4>
+        <ul class="summary">
+          {% for entry in blocked_deletions %}
+            <li>
+              <strong>{{ entry.option.name }}</strong>:
+              {% for membership in entry.memberships %}
+                {{ membership.child.first_name }} {{ membership.child.last_name }}{% if not forloop.last %}, {% endif %}
+              {% endfor %}
+            </li>
+          {% endfor %}
+        </ul>
+
+        {% if replacement_options %}
+          <input type="hidden" name="action" value="reassign_option" form="reassign-options-form">
+          {% for option_id in blocked_option_ids %}
+            <input type="hidden" name="blocked_option_ids" value="{{ option_id }}" form="reassign-options-form">
+          {% endfor %}
+
+          <table>
+            <thead>
+              <tr>
+                <th>Dítě</th>
+                <th>Aktuální varianta</th>
+                <th>Nová varianta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for membership in blocked_memberships %}
+                <tr>
+                  <td>{{ membership.child.first_name }} {{ membership.child.last_name }}</td>
+                  <td>{{ membership.attendance_option.name }}</td>
+                  <td>
+                    <select name="membership_option_{{ membership.id }}" form="reassign-options-form">
+                      <option value="">— vyberte —</option>
+                      {% for option in replacement_options %}
+                        <option value="{{ option.id }}">{{ option.name }} ({{ option.frequency_per_week }}x týdně)</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <div style="margin-top:10px;">
+            <button class="btn" type="submit" form="reassign-options-form">Uložit nové varianty dětem</button>
+          </div>
+        {% else %}
+          <p class="muted">Není dostupná žádná jiná varianta. Vytvořte nejprve novou docházkovou variantu.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div style="margin-top:16px;">
+      <button class="btn" type="submit">Uložit</button>
+      {% if is_edit and group %}
+        <a class="btn secondary" href="/admin/groups/{{ group.id }}/">Zpět</a>
+      {% else %}
+        <a class="btn secondary" href="/admin/groups/">Zpět</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+{% if blocked_memberships %}
+  <form id="reassign-options-form" method="post">
+    {% csrf_token %}
+  </form>
+{% endif %}
+{% endblock %}

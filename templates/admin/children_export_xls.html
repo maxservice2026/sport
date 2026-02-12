@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <title>Export dětí</title>
+</head>
+<body>
+  <h2>Export dětí</h2>
+  {% if query %}<p>Filtr text: {{ query }}</p>{% endif %}
+  {% if group_filter %}<p>Filtr skupina ID: {{ group_filter }}</p>{% endif %}
+  <table border="1">
+    <thead>
+      <tr>
+        <th>Jméno</th>
+        <th>Telefon rodiče</th>
+        <th>Ročník</th>
+        <th>Zapojení do skupiny</th>
+        <th>VS</th>
+        <th>Rodič</th>
+        <th>Skupiny</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.child.first_name }} {{ row.child.last_name }}</td>
+          <td>{{ row.phone|default:"-" }}</td>
+          <td>{{ row.birth_year }}</td>
+          <td>{% if row.joined_at %}{{ row.joined_at|date:"d.m.Y" }}{% else %}-{% endif %}</td>
+          <td>{{ row.child.variable_symbol }}</td>
+          <td>{{ row.child.parent.first_name }} {{ row.child.parent.last_name }}</td>
+          <td>
+            {% if row.memberships %}
+              {% for membership in row.memberships %}
+                {{ membership.group.name }}{% if not forloop.last %}, {% endif %}
+              {% endfor %}
+            {% else %}
+              Bez skupiny
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

@@ -1,0 +1,32 @@
+databases:
+  - name: skmnisecko-db
+    databaseName: skmnisecko
+    user: skmnisecko
+    plan: basic-1gb
+
+services:
+  - type: web
+    name: skmnisecko-web
+    runtime: python
+    plan: standard
+    buildCommand: ./build.sh
+    startCommand: gunicorn skmnisecko.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "0"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://*.onrender.com"
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "1"
+      - key: DJANGO_SESSION_COOKIE_SECURE
+        value: "1"
+      - key: DJANGO_CSRF_COOKIE_SECURE
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: skmnisecko-db
+          property: connectionString

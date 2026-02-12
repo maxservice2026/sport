@@ -1,0 +1,116 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<style>
+  @media (max-width: 1100px) {
+    .membership-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<section class="page-hero">
+  <h2>Karta dítěte</h2>
+  <p>Správa údajů, účasti ve skupinách a zařazení.</p>
+</section>
+
+<section class="page-panel">
+  <h2>Upravit dítě</h2>
+  <h3>{{ child.first_name }} {{ child.last_name }}</h3>
+  <p class="muted">Rodič: {{ child.parent.first_name }} {{ child.parent.last_name }} ({{ child.parent.email }})</p>
+  <p class="muted">VS: {{ child.variable_symbol }}</p>
+
+  <h3>Účastní se skupin</h3>
+  {% for membership in memberships %}
+    <form method="post" class="membership-row" style="display:grid;grid-template-columns:1.4fr 1fr 170px auto;gap:8px;align-items:end;margin-bottom:8px;">
+      {% csrf_token %}
+      <input type="hidden" name="membership_id" value="{{ membership.id }}">
+      <div>
+        <label>Skupina</label>
+        <input type="text" value="{{ membership.group.sport.name }} - {{ membership.group.name }}" disabled>
+      </div>
+      <div>
+        <label>Varianta</label>
+        <input type="text" value="{% if membership.attendance_option %}{{ membership.attendance_option.name }}{% else %}-{% endif %}" disabled>
+      </div>
+      <div>
+        <label>Datum zařazení</label>
+        <input type="date" name="registered_at_date" value="{{ membership.registered_at|date:'Y-m-d' }}">
+      </div>
+      <button class="btn secondary" type="submit" name="update_membership_date" value="1">Uložit datum</button>
+    </form>
+  {% endfor %}
+  {% if not memberships %}
+    <p class="muted">Dítě zatím není přiřazeno do žádné skupiny.</p>
+  {% endif %}
+
+  <h3>Přiřadit do skupiny</h3>
+  <form method="post" style="margin-bottom:16px;">
+    {% csrf_token %}
+    <div class="form-row">
+      <label>Skupina</label>
+      {{ membership_form.group }}
+      {{ membership_form.group.errors }}
+    </div>
+    <div class="form-row">
+      <label>Docházková varianta</label>
+      {{ membership_form.attendance_option }}
+      {{ membership_form.attendance_option.errors }}
+    </div>
+    <button class="btn" type="submit" name="add_membership" value="1">Přiřadit</button>
+  </form>
+
+  <h3>Údaje dítěte</h3>
+  <form method="post">
+    {% csrf_token %}
+    {% for field in form %}
+      <div class="form-row">
+        <label>{{ field.label }}</label>
+        {{ field }}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+    <button class="btn" type="submit" name="save_child" value="1">Uložit</button>
+  </form>
+</section>
+<script>
+  (function() {
+    const groupSelect = document.getElementById('id_group');
+    const optionSelect = document.getElementById('id_attendance_option');
+    if (!groupSelect || !optionSelect) return;
+
+    function setOptions(options) {
+      optionSelect.innerHTML = '';
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '— vyberte variantu —';
+      optionSelect.appendChild(empty);
+      options.forEach(opt => {
+        const el = document.createElement('option');
+        el.value = opt.id;
+        el.textContent = opt.name;
+        optionSelect.appendChild(el);
+      });
+    }
+
+    async function loadOptions() {
+      const groupId = groupSelect.value;
+      if (!groupId) {
+        setOptions([]);
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/attendance-options/?group_id=${encodeURIComponent(groupId)}`);
+        const data = await resp.json();
+        setOptions(data.options || []);
+      } catch (e) {
+        setOptions([]);
+      }
+    }
+
+    groupSelect.addEventListener('change', loadOptions);
+    if (groupSelect.value) {
+      loadOptions();
+    }
+  })();
+</script>
+{% endblock %}

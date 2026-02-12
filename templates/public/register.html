@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  .flash {
+    background: #ffe5e5;
+    border: 1px solid #f1b7b7;
+    color: #a11818;
+  }
+  .errorlist {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    color: #a11818;
+    font-weight: 700;
+  }
+  .errorlist li {
+    margin: 2px 0;
+  }
+</style>
+
+<div class="card">
+  <h2>Registrace dítěte</h2>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <h3>Sport a skupina</h3>
+    <div class="form-row">
+      <label>Sport</label>
+      {{ form.sport }}
+      {{ form.sport.errors }}
+    </div>
+    <div class="form-row">
+      <label>Skupina</label>
+      {{ form.group }}
+      {{ form.group.errors }}
+    </div>
+    <div class="form-row">
+      <label>Docházková varianta</label>
+      {{ form.attendance_option }}
+      {{ form.attendance_option.errors }}
+      <div class="muted">Vyberte skupinu a nabídka se načte automaticky.</div>
+    </div>
+    <div class="form-row">
+      <label>Začátek docházky od měsíce</label>
+      {{ form.start_month }}
+      {{ form.start_month.errors }}
+      <div class="muted">Pokud nevyberete, použije se aktuální měsíc v rámci období skupiny.</div>
+    </div>
+
+    <h3>Identifikace dítěte</h3>
+    <div class="form-row">
+      {{ form.id_type }}
+      {{ form.id_type.errors }}
+    </div>
+    <div class="form-row">
+      <label>Rodné číslo</label>
+      {{ form.birth_number }}
+      {{ form.birth_number.errors }}
+    </div>
+    <div class="form-row">
+      <label>Číslo pasu</label>
+      {{ form.passport_number }}
+      {{ form.passport_number.errors }}
+    </div>
+
+    <h3>Údaje dítěte</h3>
+    <div class="form-row">
+      <label>Jméno</label>
+      {{ form.child_first_name }}
+      {{ form.child_first_name.errors }}
+    </div>
+    <div class="form-row">
+      <label>Příjmení</label>
+      {{ form.child_last_name }}
+      {{ form.child_last_name.errors }}
+    </div>
+    <div class="form-row">
+      <label>Telefon dítěte (volitelné)</label>
+      {{ form.child_phone }}
+      {{ form.child_phone.errors }}
+    </div>
+
+    <h3>Údaje rodiče</h3>
+    <div class="form-row">
+      <label>Jméno</label>
+      {{ form.parent_first_name }}
+      {{ form.parent_first_name.errors }}
+    </div>
+    <div class="form-row">
+      <label>Příjmení</label>
+      {{ form.parent_last_name }}
+      {{ form.parent_last_name.errors }}
+    </div>
+    <div class="form-row">
+      <label>Email</label>
+      {{ form.parent_email }}
+      {{ form.parent_email.errors }}
+    </div>
+    <div class="form-row">
+      <label>Telefon</label>
+      {{ form.parent_phone }}
+      {{ form.parent_phone.errors }}
+    </div>
+    <div class="form-row">
+      <label>Ulice</label>
+      {{ form.parent_street }}
+      {{ form.parent_street.errors }}
+    </div>
+    <div class="form-row">
+      <label>Město</label>
+      {{ form.parent_city }}
+      {{ form.parent_city.errors }}
+    </div>
+    <div class="form-row">
+      <label>PSČ</label>
+      {{ form.parent_zip }}
+      {{ form.parent_zip.errors }}
+    </div>
+
+    <h3>Přístup rodiče</h3>
+    <div class="muted" style="margin-bottom:8px;">
+      Pokud už máte účet, zadejte stejný email a své heslo – dítě se přidá k vašemu účtu.
+    </div>
+    <div class="form-row">
+      <label>Heslo</label>
+      {{ form.password1 }}
+      {{ form.password1.errors }}
+    </div>
+    <div class="form-row">
+      <label>Heslo znovu</label>
+      {{ form.password2 }}
+      {{ form.password2.errors }}
+    </div>
+
+    <button class="btn" type="submit">Odeslat registraci</button>
+  </form>
+</div>
+
+<script>
+  (function() {
+    const groupSelect = document.getElementById('id_group');
+    const optionSelect = document.getElementById('id_attendance_option');
+    const startMonthSelect = document.getElementById('id_start_month');
+    if (!groupSelect || !optionSelect || !startMonthSelect) return;
+
+    function setOptions(options) {
+      const previousValue = optionSelect.value;
+      optionSelect.innerHTML = '';
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '— vyberte variantu —';
+      optionSelect.appendChild(empty);
+      options.forEach(opt => {
+        const el = document.createElement('option');
+        el.value = opt.id;
+        el.textContent = opt.name;
+        if (String(opt.id) === String(previousValue)) {
+          el.selected = true;
+        }
+        optionSelect.appendChild(el);
+      });
+    }
+
+    function setMonths(months) {
+      const previousValue = startMonthSelect.value;
+      startMonthSelect.innerHTML = '';
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '— dle aktuálního měsíce —';
+      startMonthSelect.appendChild(empty);
+      months.forEach((item) => {
+        const el = document.createElement('option');
+        el.value = item.value;
+        el.textContent = item.label;
+        if (item.value === previousValue) {
+          el.selected = true;
+        }
+        startMonthSelect.appendChild(el);
+      });
+    }
+
+    async function loadOptions() {
+      const groupId = groupSelect.value;
+      if (!groupId) {
+        setOptions([]);
+        setMonths([]);
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/attendance-options/?group_id=${encodeURIComponent(groupId)}`);
+        const data = await resp.json();
+        setOptions(data.options || []);
+        setMonths(data.months || []);
+      } catch (e) {
+        setOptions([]);
+        setMonths([]);
+      }
+    }
+
+    groupSelect.addEventListener('change', loadOptions);
+    if (groupSelect.value) {
+      loadOptions();
+    }
+  })();
+</script>
+{% endblock %}

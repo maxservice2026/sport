@@ -1,0 +1,15 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('admin/', views.admin_dashboard, name='admin_dashboard_root'),
+    path('admin/dashboard/', views.admin_dashboard, name='admin_dashboard'),
+    path('admin/trainers/', views.admin_trainer_list, name='admin_trainers'),
+    path('admin/trainers/new/', views.admin_trainer_create, name='admin_trainer_create'),
+    path('admin/trainers/<int:user_id>/', views.admin_trainer_edit, name='admin_trainer_edit'),
+    path('admin/economics/', views.admin_economics, name='admin_economics'),
+    path('trainer/', views.trainer_dashboard, name='trainer_dashboard'),
+    path('parent/', views.parent_dashboard, name='parent_dashboard'),
+    path('parent/profile/', views.parent_profile, name='parent_profile'),
+    path('parent/child/<int:child_id>/', views.parent_child_detail, name='parent_child_detail'),
+]

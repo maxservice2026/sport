@@ -1,0 +1,127 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<style>
+  .children-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 1100px;
+    font-size: 15px;
+  }
+  .children-table th,
+  .children-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #eceff3;
+    line-height: 1.2;
+    vertical-align: middle;
+  }
+  .children-table th {
+    text-align: left;
+  }
+  .edit-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid #cfd8e3;
+    background: #f4f7fb;
+    color: #1f4f82;
+    text-decoration: none;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .edit-icon-btn:hover {
+    background: #e7f0fa;
+  }
+</style>
+
+<section class="page-hero">
+  <h2>Děti</h2>
+  <p>Přehled všech dětí, jejich kontaktů a zařazení do skupin.</p>
+</section>
+
+<section class="page-panel">
+  <form id="children-filter" method="get" style="margin:12px 0; display:flex; gap:8px; flex-wrap:wrap;">
+    <input type="text" name="q" placeholder="Hledat jméno, VS nebo skupinu" value="{{ query }}" style="max-width:260px;">
+    <select name="group">
+      <option value="">— všechny skupiny —</option>
+      {% for group in groups %}
+        <option value="{{ group.id }}" {% if group_filter|stringformat:"s" == group.id|stringformat:"s" %}selected{% endif %}>
+          {{ group.sport.name }} – {{ group.name }}
+        </option>
+      {% endfor %}
+    </select>
+    <a class="btn" href="/admin/children/export.xls?q={{ query|urlencode }}&group={{ group_filter|urlencode }}">Export XLS</a>
+    {% if query or group_filter %}
+      <a class="btn secondary" href="/admin/children/">Zrušit filtr</a>
+    {% endif %}
+  </form>
+
+  {% if rows %}
+    <div class="table-wrap">
+    <table class="children-table">
+      <thead>
+        <tr>
+          <th>Jméno</th>
+          <th>Telefon rodiče</th>
+          <th>Ročník</th>
+          <th>Zapojení do skupiny</th>
+          <th>VS</th>
+          <th>Rodič</th>
+          <th>Skupiny</th>
+          <th>Akce</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.child.first_name }} {{ row.child.last_name }}</td>
+            <td>{{ row.phone|default:"-" }}</td>
+            <td>{{ row.birth_year }}</td>
+            <td>{% if row.joined_at %}{{ row.joined_at|date:"d.m.Y" }}{% else %}-{% endif %}</td>
+            <td>{{ row.child.variable_symbol }}</td>
+            <td>{{ row.child.parent.first_name }} {{ row.child.parent.last_name }}</td>
+            <td>
+              {% if row.memberships %}
+                {% for membership in row.memberships %}
+                  {{ membership.group.name }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+              {% else %}
+                <span class="muted">Bez skupiny</span>
+              {% endif %}
+            </td>
+            <td>
+              <a class="edit-icon-btn" href="/admin/children/{{ row.child.id }}/" title="Upravit dítě">✎</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% else %}
+    <p class="muted">Zatím žádné děti.</p>
+  {% endif %}
+</section>
+<script>
+  (function () {
+    const form = document.getElementById('children-filter');
+    if (!form) return;
+    const searchInput = form.querySelector('input[name="q"]');
+    const groupSelect = form.querySelector('select[name="group"]');
+    if (searchInput) {
+      let timer = null;
+      searchInput.addEventListener('input', function () {
+        if (timer) window.clearTimeout(timer);
+        timer = window.setTimeout(function () {
+          form.submit();
+        }, 350);
+      });
+    }
+    if (groupSelect) {
+      groupSelect.addEventListener('change', () => form.submit());
+    }
+  })();
+</script>
+{% endblock %}

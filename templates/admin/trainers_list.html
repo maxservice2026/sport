@@ -1,0 +1,47 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<section class="page-hero">
+  <h2>Trenéři</h2>
+  <p>Správa trenérských účtů a přiřazených skupin.</p>
+</section>
+
+<section class="page-panel">
+  <p><a class="btn" href="/admin/trainers/new/">Vytvořit trenéra</a></p>
+
+  {% if trainers %}
+    <div class="table-wrap">
+    <table style="width:100%;border-collapse:collapse;min-width:900px;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:8px;">Jméno</th>
+          <th style="padding:8px;">Email</th>
+          <th style="padding:8px;">Skupiny</th>
+          <th style="padding:8px;">Akce</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trainer in trainers %}
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:8px;">{{ trainer.first_name }} {{ trainer.last_name }}</td>
+            <td style="padding:8px;">{{ trainer.email }}</td>
+            <td style="padding:8px;">
+              {% if trainer.assigned_groups.all %}
+                {% for group in trainer.assigned_groups.all %}
+                  {{ group.name }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+              {% else %}-{% endif %}
+            </td>
+            <td style="padding:8px;">
+              <a class="btn secondary" href="/admin/trainers/{{ trainer.id }}/">Upravit</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% else %}
+    <p class="muted">Zatím nemáte vytvořené trenéry.</p>
+  {% endif %}
+</section>
+{% endblock %}

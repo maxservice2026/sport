@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  .parent-card {
+    background: #fff;
+    border: 1px solid #e8edf2;
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
+  }
+  .child-block {
+    border-top: 1px solid #eef1f4;
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  .child-block:first-of-type {
+    border-top: 0;
+    margin-top: 0;
+    padding-top: 0;
+  }
+  .charge-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+  .charge-table th,
+  .charge-table td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid #eef1f4;
+    vertical-align: top;
+  }
+  .charge-paid {
+    color: #188b4a;
+    font-weight: 700;
+  }
+  .charge-open {
+    color: #8b1e1e;
+    font-weight: 700;
+  }
+  .membership-item {
+    margin: 3px 0;
+  }
+</style>
+
+<div class="card">
+  <h2>Rodičovský přehled</h2>
+  <p>
+    <a class="btn" href="/parent/profile/">Upravit moje údaje</a>
+    <a class="btn secondary" href="/registrace/">Přidat další dítě</a>
+  </p>
+
+  <h3>Děti</h3>
+  {% if children %}
+    <div class="parent-card">
+      {% for child in children %}
+        <section class="child-block">
+          <strong>{{ child.first_name }} {{ child.last_name }}</strong>
+          <div class="muted">VS: {{ child.variable_symbol }} | ID: {% if child.birth_number %}{{ child.birth_number }}{% else %}{{ child.passport_number }}{% endif %}</div>
+          <div style="margin-top:6px;">
+            {% for membership in child.memberships.all %}
+              <div class="membership-item">Skupina: {{ membership.group }}{% if membership.attendance_option %}, varianta: {{ membership.attendance_option.name }}{% endif %}</div>
+            {% empty %}
+              <div class="muted">Dítě zatím nemá aktivní skupinu.</div>
+            {% endfor %}
+          </div>
+
+          <div style="margin-top:10px;"><strong>Výzvy k úhradě (prodej)</strong></div>
+          {% if child.charge_rows %}
+              <table class="charge-table">
+                <thead>
+                  <tr>
+                    <th>Položka</th>
+                    <th>Částka</th>
+                    <th>Stav</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for charge in child.charge_rows %}
+                    <tr>
+                      <td>{{ charge.title }}{% if charge.note %}<div class="muted">{{ charge.note }}</div>{% endif %}</td>
+                      <td>{{ charge.amount_czk }} Kč</td>
+                      <td>
+                        {% if charge.paid %}
+                          <span class="charge-paid">Uhrazeno</span>
+                        {% else %}
+                          <span class="charge-open">Čeká na úhradu</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+          {% else %}
+            <div class="muted" style="margin-top:6px;">Bez otevřených prodejních položek.</div>
+          {% endif %}
+
+          <div style="margin-top:10px;"><a class="btn secondary" href="/parent/child/{{ child.id }}/">Karta dítěte</a></div>
+        </section>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">Zatím nemáte registrované dítě.</p>
+  {% endif %}
+</div>
+{% endblock %}

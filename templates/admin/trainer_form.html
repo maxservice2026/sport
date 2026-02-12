@@ -1,0 +1,63 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<div class="card">
+  <h2>{% if is_edit %}Upravit trenéra{% else %}Nový trenér{% endif %}</h2>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <div class="form-row">
+      <label>Email</label>
+      {{ form.email }}
+      {{ form.email.errors }}
+    </div>
+    <div class="form-row">
+      <label>Jméno</label>
+      {{ form.first_name }}
+      {{ form.first_name.errors }}
+    </div>
+    <div class="form-row">
+      <label>Příjmení</label>
+      {{ form.last_name }}
+      {{ form.last_name.errors }}
+    </div>
+
+    {% if is_edit %}
+      <h3>Změna hesla (volitelné)</h3>
+      <div class="form-row">
+        <label>Nové heslo</label>
+        {{ form.new_password1 }}
+        {{ form.new_password1.errors }}
+      </div>
+      <div class="form-row">
+        <label>Nové heslo znovu</label>
+        {{ form.new_password2 }}
+        {{ form.new_password2.errors }}
+      </div>
+    {% else %}
+      <div class="form-row">
+        <label>Heslo</label>
+        {{ form.password1 }}
+        {{ form.password1.errors }}
+      </div>
+      <div class="form-row">
+        <label>Heslo znovu</label>
+        {{ form.password2 }}
+        {{ form.password2.errors }}
+      </div>
+    {% endif %}
+
+    <div class="form-row">
+      <label>Skupiny</label>
+      {{ form.groups }}
+      {{ form.groups.errors }}
+    </div>
+
+    <div style="margin-top:16px;">
+      <button class="btn" type="submit">Uložit</button>
+      <a class="btn secondary" href="/admin/trainers/">Zpět</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

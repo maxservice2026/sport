@@ -1,0 +1,144 @@
+{% extends 'admin/base_admin.html' %}
+{% load formatting %}
+
+{% block admin_content %}
+<style>
+  .dash-hero {
+    background: linear-gradient(135deg, #10324f 0%, #1e5f8f 60%, #2d84be 100%);
+    color: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 24px rgba(16, 50, 79, 0.25);
+  }
+  .dash-hero h2 { margin: 0 0 6px; font-size: 34px; }
+  .dash-hero p { margin: 0; color: rgba(255,255,255,0.9); }
+  .dash-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .dash-stat {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+    border: 1px solid #e8edf2;
+  }
+  .dash-stat .k { font-size: 30px; font-weight: 800; line-height: 1; }
+  .dash-stat .l { color: #5b6470; margin-top: 4px; }
+  .dash-stat .sub {
+    color: #2f3b47;
+    font-size: 14px;
+    margin-top: 6px;
+    font-weight: 700;
+  }
+  .dash-stat.wide {
+    grid-column: span 2;
+  }
+  .gender-row {
+    margin-top: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .gender-item {
+    flex: 1;
+    min-width: 0;
+  }
+  .gender-item .k {
+    margin: 0;
+  }
+  .gender-item .l {
+    margin-top: 2px;
+  }
+  .gender-icon-line {
+    margin-top: 4px;
+    min-height: 22px;
+  }
+  .gender-icon {
+    display: inline-block;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .gender-icon.boy { color: #1568c6; }
+  .gender-icon.girl { color: #c8224b; }
+  .dash-grid { display: block; }
+  .dash-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+    border: 1px solid #e8edf2;
+  }
+  .dash-card h3 { margin: 0 0 10px; }
+  .dash-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .dash-actions a.btn { text-align: center; }
+  @media (max-width: 760px) {
+    .dash-stats { grid-template-columns: 1fr; }
+    .dash-stat.wide { grid-column: span 1; }
+    .dash-actions { grid-template-columns: 1fr; }
+    .dash-hero h2 { font-size: 28px; }
+  }
+</style>
+
+<section class="dash-hero">
+  <h2>Administrace SK Mníšecko</h2>
+  <p>Centrální přehled skupin, registrací, docházky a ekonomiky.</p>
+</section>
+
+<section class="dash-stats">
+  <article class="dash-stat">
+    <div class="k">{{ sport_count }}</div>
+    <div class="l">Sporty</div>
+  </article>
+  <article class="dash-stat">
+    <div class="k">{{ group_count }}</div>
+    <div class="l">Skupiny</div>
+  </article>
+  <article class="dash-stat">
+    <div class="k">{{ child_count }}</div>
+    <div class="l">Registrované děti</div>
+  </article>
+  <article class="dash-stat">
+    <div class="k">{{ trainer_count }}</div>
+    <div class="l">Aktivní trenéři</div>
+  </article>
+  <article class="dash-stat">
+    <div class="gender-row">
+      <div class="gender-item">
+        <div class="k">{{ boys_count }}</div>
+        <div class="l">Základna <span class="gender-icon boy">♂</span></div>
+      </div>
+      <div class="gender-item">
+        <div class="k">{{ girls_count }}</div>
+        <div class="l">Základna <span class="gender-icon girl">♀</span></div>
+      </div>
+    </div>
+  </article>
+  <article class="dash-stat">
+    <div class="k">{{ attendance_average_percent }} %</div>
+    <div class="l">Průměrná docházka</div>
+  </article>
+  <article class="dash-stat wide">
+    <div class="k">{{ contributions_expected|czk_int }} Kč</div>
+    <div class="l">Očekávané příspěvky</div>
+    <div class="sub">Uhrazeno: {{ contributions_paid|czk_int }} Kč</div>
+  </article>
+</section>
+
+<section class="dash-grid">
+  <article class="dash-card">
+    <h3>Rychlé akce</h3>
+    <div class="dash-actions">
+      <a class="btn" href="/admin/groups/new/">+ Nová skupina</a>
+      <a class="btn" href="/admin/trainers/new/">+ Nový trenér</a>
+      <a class="btn" href="/admin/attendance/">Docházka</a>
+      <a class="btn" href="/admin/economics/">Ekonomika</a>
+      <a class="btn secondary" href="/admin/children/">Seznam dětí</a>
+      <a class="btn secondary" href="/admin/contributions/">Příspěvky</a>
+    </div>
+  </article>
+</section>
+{% endblock %}

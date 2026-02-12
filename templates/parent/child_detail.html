@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  .charge-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+  .charge-table th,
+  .charge-table td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid #eef1f4;
+    vertical-align: top;
+  }
+  .charge-paid {
+    color: #188b4a;
+    font-weight: 700;
+  }
+  .charge-open {
+    color: #8b1e1e;
+    font-weight: 700;
+  }
+</style>
+
+<div class="card">
+  <h2>Karta dítěte: {{ child.first_name }} {{ child.last_name }}</h2>
+  <p class="muted">Unikátní ID: {{ child.unique_id }} | VS: {{ child.variable_symbol }}</p>
+
+  <h3>Členství</h3>
+  {% if memberships %}
+    <ul>
+      {% for membership in memberships %}
+        <li>Skupina: {{ membership.group }}{% if membership.attendance_option %}, varianta: {{ membership.attendance_option.name }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Zatím bez členství.</p>
+  {% endif %}
+
+  <h3>Výzvy k úhradě (prodej)</h3>
+  {% if sale_charges %}
+    <table class="charge-table">
+      <thead>
+        <tr>
+          <th>Položka</th>
+          <th>Částka</th>
+          <th>Stav</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for charge in sale_charges %}
+          <tr>
+            <td>{{ charge.title }}{% if charge.note %}<div class="muted">{{ charge.note }}</div>{% endif %}</td>
+            <td>{{ charge.amount_czk }} Kč</td>
+            <td>
+              {% if charge.paid %}
+                <span class="charge-paid">Uhrazeno</span>
+              {% else %}
+                <span class="charge-open">Čeká na úhradu</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Bez otevřených prodejních položek.</p>
+  {% endif %}
+
+  <h3>Upravit údaje dítěte</h3>
+  <form method="post">
+    {% csrf_token %}
+    {% for field in form %}
+      <div class="form-row">
+        <label>{{ field.label }}</label>
+        {{ field }}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+    <button class="btn" type="submit">Uložit</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,480 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<style>
+  .eco-hero {
+    background: linear-gradient(135deg, #10324f 0%, #1e5f8f 60%, #2d84be 100%);
+    color: #fff;
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+    box-shadow: 0 10px 24px rgba(16, 50, 79, 0.25);
+  }
+  .eco-hero h2 { margin: 0 0 4px; }
+  .eco-hero p { margin: 0; color: rgba(255,255,255,0.9); }
+  .eco-toolbar {
+    background: #fff;
+    border: 1px solid #e8edf2;
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 12px;
+    display: flex;
+    gap: 10px;
+    align-items: end;
+    flex-wrap: wrap;
+  }
+  .eco-toolbar label { margin: 0 0 4px; }
+  .eco-table-wrap {
+    background: #fff;
+    border: 1px solid #e8edf2;
+    border-radius: 12px;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .eco-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 14px;
+  }
+  .eco-table th,
+  .eco-table td {
+    padding: 8px;
+    border-bottom: 1px solid #eef1f4;
+    vertical-align: middle;
+  }
+  .eco-table th { text-align: left; }
+  .eco-table .email-cell {
+    word-break: break-word;
+    color: #475261;
+  }
+  .eco-table select,
+  .eco-table input[type="number"] {
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 6px;
+  }
+  .eco-tax {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .eco-tax input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+  }
+  .records-btn {
+    border: 1px solid #1e5f8f;
+    color: #1e5f8f;
+    background: #e9f2fb;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .records-btn:hover {
+    background: #d7e9fb;
+  }
+  .records-modal::backdrop {
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .records-modal {
+    border: 1px solid #cfd8e3;
+    border-radius: 12px;
+    padding: 0;
+    max-width: 860px;
+    width: 92%;
+  }
+  .records-modal .head {
+    padding: 12px 14px;
+    border-bottom: 1px solid #e8edf2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+  .records-modal .body {
+    padding: 12px 14px;
+    max-height: 70vh;
+    overflow: auto;
+  }
+  .records-modal table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .records-modal th, .records-modal td {
+    text-align: left;
+    padding: 7px 8px;
+    border-bottom: 1px solid #eef1f4;
+  }
+  .eco-summary {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .eco-summary .item {
+    background: #fff;
+    border: 1px solid #e8edf2;
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+  }
+  .eco-summary .k {
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+  .eco-summary .l {
+    color: #5b6470;
+    font-size: 13px;
+    margin-top: 3px;
+  }
+  .sale-list { margin-top: 14px; }
+  .sale-list table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .sale-list th, .sale-list td { text-align: left; padding: 8px; border-bottom: 1px solid #eef1f4; }
+  .sale-modal::backdrop { background: rgba(0, 0, 0, 0.35); }
+  .sale-modal {
+    border: 1px solid #cfd8e3;
+    border-radius: 12px;
+    padding: 0;
+    max-width: 960px;
+    width: 92%;
+  }
+  .sale-modal .head {
+    padding: 12px 14px;
+    border-bottom: 1px solid #e8edf2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+  .sale-modal .body { padding: 12px 14px; }
+  .sale-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 160px;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  @media (max-width: 760px) {
+    .sale-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 1200px) {
+    .eco-table-wrap { overflow-x: auto; }
+    .eco-table { min-width: 1150px; table-layout: auto; }
+  }
+  @media (max-width: 900px) {
+    .eco-summary { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 560px) {
+    .eco-summary { grid-template-columns: 1fr; }
+  }
+</style>
+
+<section class="eco-hero">
+  <h2>Ekonomika</h2>
+  <p>Přehled trenérů, jejich docházky a odměn.</p>
+</section>
+
+<form method="get" class="eco-toolbar">
+  <div>
+    <label for="period">Období</label>
+    <select id="period" name="period">
+      {% for value, label in period_choices %}
+        <option value="{{ value }}" {% if period == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="muted">
+    Rozsah: {{ range_start|date:"d.m.Y" }} - {{ range_end|date:"d.m.Y" }}
+  </div>
+  <button type="button" class="btn" id="open-sale-modal">Prodej</button>
+  <button class="btn secondary" type="submit">Použít</button>
+</form>
+
+<div class="eco-table-wrap">
+  <table class="eco-table">
+    <thead>
+      <tr>
+        <th style="width:13%;">Trenér</th>
+        <th style="width:23%;">Email</th>
+        <th style="width:8%;">Záznamy</th>
+        <th style="width:10%;">Typ</th>
+        <th style="width:8%;">Daň 15%</th>
+        <th style="width:10%;">Kč / záznam</th>
+        <th style="width:9%;">Hrubá</th>
+        <th style="width:9%;">Daň</th>
+        <th style="width:9%;">Výplata</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.trainer.first_name }} {{ row.trainer.last_name }}</td>
+          <td class="email-cell">{{ row.trainer.email }}</td>
+          <td>
+            {% if row.attendance_count > 0 %}
+              <button
+                type="button"
+                class="records-btn"
+                data-modal-id="records-modal-{{ row.trainer.id }}"
+                title="Zobrazit záznamy"
+              >
+                {{ row.attendance_count }}
+              </button>
+            {% else %}
+              <strong>0</strong>
+            {% endif %}
+          </td>
+          <td>
+            <select name="trainer_payment_mode" form="economics-{{ row.trainer.id }}">
+              {% for value, label in payment_choices %}
+                <option value="{{ value }}" {% if row.trainer.trainer_payment_mode == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <label class="eco-tax">
+              <input
+                type="checkbox"
+                name="trainer_tax_15_enabled"
+                form="economics-{{ row.trainer.id }}"
+                {% if row.trainer.trainer_tax_15_enabled %}checked{% endif %}
+              >
+              <span>15 %</span>
+            </label>
+          </td>
+          <td>
+            <input
+              type="number"
+              name="trainer_rate_per_record"
+              form="economics-{{ row.trainer.id }}"
+              min="0"
+              step="1"
+              value="{{ row.trainer.trainer_rate_per_record }}"
+            >
+          </td>
+          <td><strong>{{ row.gross }}</strong></td>
+          <td>{{ row.tax }}</td>
+          <td><strong>{{ row.net }}</strong></td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="9" class="muted">Nejsou vytvořeni žádní trenéři.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% for row in rows %}
+  <form id="economics-{{ row.trainer.id }}" method="post" style="display:none;">
+    {% csrf_token %}
+    <input type="hidden" name="trainer_id" value="{{ row.trainer.id }}">
+    <input type="hidden" name="period" value="{{ period }}">
+  </form>
+
+  <dialog id="records-modal-{{ row.trainer.id }}" class="records-modal">
+    <div class="head">
+      <strong>Záznamy docházky – {{ row.trainer.first_name }} {{ row.trainer.last_name }}</strong>
+      <button type="button" class="btn secondary" data-close-modal="records-modal-{{ row.trainer.id }}">Zavřít</button>
+    </div>
+    <div class="body">
+      {% if row.records %}
+        <table>
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Trenér</th>
+              <th>Skupina</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in row.records %}
+              <tr>
+                <td>{{ item.date|date:"d.m.Y" }}</td>
+                <td>{{ item.trainer_name }}</td>
+                <td>{{ item.group_name }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">V tomto období nejsou žádné záznamy.</p>
+      {% endif %}
+    </div>
+  </dialog>
+{% endfor %}
+
+<section class="eco-summary">
+  <article class="item">
+    <div class="k">{{ total_records }}</div>
+    <div class="l">Počet záznamů docházky</div>
+  </article>
+  <article class="item">
+    <div class="k">{{ total_gross }}</div>
+    <div class="l">Součet hrubé výplaty (Kč)</div>
+  </article>
+  <article class="item">
+    <div class="k">{{ total_tax }}</div>
+    <div class="l">Součet daně 15 % (Kč)</div>
+  </article>
+  <article class="item">
+    <div class="k">{{ total_net }}</div>
+    <div class="l">Součet výplaty po dani (Kč)</div>
+  </article>
+</section>
+
+<section class="page-panel sale-list">
+  <h3>Prodejní položky</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Dítě</th>
+          <th>VS</th>
+          <th>Položka</th>
+          <th>Částka (Kč)</th>
+          <th>Stav</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sale in sales %}
+          <tr>
+            <td>{{ sale.created_at|date:"d.m.Y" }}</td>
+            <td>{{ sale.child.first_name }} {{ sale.child.last_name }}</td>
+            <td>{{ sale.child.variable_symbol }}</td>
+            <td>{{ sale.title }}{% if sale.note %} ({{ sale.note }}){% endif %}</td>
+            <td>{{ sale.amount_czk }}</td>
+            <td>
+              {% if sale.paid %}
+                <span style="color:#188b4a;font-weight:700;">Uhrazeno</span>
+              {% else %}
+                <span style="color:#8b1e1e;font-weight:700;">Čeká na úhradu</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="muted">Zatím nejsou zadané žádné prodejní položky.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog id="sale-modal" class="sale-modal">
+  <div class="head">
+    <strong>Přidat prodejní položku</strong>
+    <button type="button" class="btn secondary" id="close-sale-modal">Zavřít</button>
+  </div>
+  <div class="body">
+    <form method="post" id="sale-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="sale_add">
+      <input type="hidden" name="period" value="{{ period }}">
+      <div class="sale-grid">
+        <div>
+          <label for="sale-child-search">Hledat dítě</label>
+          <input id="sale-child-search" type="text" placeholder="Napište jméno dítěte">
+        </div>
+        <div>
+          <label for="sale-child-id">Dítě</label>
+          <select id="sale-child-id" name="sale_child_id" required>
+            <option value="">— vyberte dítě —</option>
+            {% for child in children %}
+              <option value="{{ child.id }}">{{ child.last_name }} {{ child.first_name }} (VS {{ child.variable_symbol }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="sale-amount">Částka (Kč)</label>
+          <input id="sale-amount" type="number" name="sale_amount_czk" min="0" step="0.01" required>
+        </div>
+      </div>
+      <div class="sale-grid" style="grid-template-columns:1fr 1fr;">
+        <div>
+          <label for="sale-title">Položka</label>
+          <input id="sale-title" type="text" name="sale_title" placeholder="Např. sportovní dres" required>
+        </div>
+        <div>
+          <label for="sale-note">Poznámka</label>
+          <input id="sale-note" type="text" name="sale_note" placeholder="Volitelné">
+        </div>
+      </div>
+      <button class="btn" type="submit">Přidat položku</button>
+    </form>
+  </div>
+</dialog>
+
+<script>
+  (function () {
+    const periodSelect = document.getElementById('period');
+    if (periodSelect && periodSelect.form) {
+      periodSelect.addEventListener('change', function () {
+        periodSelect.form.submit();
+      });
+    }
+
+    const controls = document.querySelectorAll('[form^="economics-"]');
+    controls.forEach((control) => {
+      const submitRow = function () {
+        const formId = control.getAttribute('form');
+        if (!formId) return;
+        const form = document.getElementById(formId);
+        if (form) {
+          form.submit();
+        }
+      };
+      control.addEventListener('change', submitRow);
+    });
+
+    document.querySelectorAll('[data-modal-id]').forEach((btn) => {
+      btn.addEventListener('click', function () {
+        const id = btn.getAttribute('data-modal-id');
+        const modal = id ? document.getElementById(id) : null;
+        if (!modal) return;
+        if (typeof modal.showModal === 'function') {
+          modal.showModal();
+        }
+      });
+    });
+    document.querySelectorAll('[data-close-modal]').forEach((btn) => {
+      btn.addEventListener('click', function () {
+        const id = btn.getAttribute('data-close-modal');
+        const modal = id ? document.getElementById(id) : null;
+        if (!modal) return;
+        if (typeof modal.close === 'function') {
+          modal.close();
+        }
+      });
+    });
+
+    const saleModal = document.getElementById('sale-modal');
+    const openSale = document.getElementById('open-sale-modal');
+    const closeSale = document.getElementById('close-sale-modal');
+    if (saleModal && openSale && closeSale && typeof saleModal.showModal === 'function') {
+      openSale.addEventListener('click', () => saleModal.showModal());
+      closeSale.addEventListener('click', () => saleModal.close());
+    }
+
+    const searchInput = document.getElementById('sale-child-search');
+    const childSelect = document.getElementById('sale-child-id');
+    if (searchInput && childSelect) {
+      searchInput.addEventListener('input', function () {
+        const q = searchInput.value.toLowerCase().trim();
+        Array.from(childSelect.options).forEach((opt, index) => {
+          if (index === 0) return;
+          const visible = !q || opt.text.toLowerCase().includes(q);
+          opt.hidden = !visible;
+        });
+      });
+    }
+  })();
+</script>
+{% endblock %}
