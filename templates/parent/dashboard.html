@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load formatting %}
 
 {% block content %}
 <style>
@@ -188,12 +189,16 @@
           <div id="qr-platba-{{ child.id }}" style="margin-top:10px;">
             <strong>QR platba (součet všech otevřených plateb)</strong>
             {% if child.due_total > 0 %}
-              <div class="muted" style="margin-top:4px;">Účet: <strong>290625104 / 0300</strong> | VS: <strong>{{ child.variable_symbol }}</strong> | Celkem: <strong>{{ child.due_total }} Kč</strong></div>
-              <img
-                alt="QR platba"
-                src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={{ 'SPD*1.0*ACC:CZ9603000000000290625104*CC:CZK*AM:'|add:child.due_total|add:'*X-VS:'|add:child.variable_symbol|add:'*MSG:Platba'|urlencode }}"
-                style="max-width:220px;border:1px solid #d9e0e8;border-radius:8px;padding:4px;background:#fff;margin-top:6px;"
-              >
+              <div class="muted" style="margin-top:4px;">Účet: <strong>{{ payment_account_display }}</strong> | VS: <strong>{{ child.variable_symbol }}</strong> | Celkem: <strong>{{ child.due_total|czk_amount }} Kč</strong></div>
+              {% if child.qr_image_data %}
+                <img
+                  alt="QR platba"
+                  src="{{ child.qr_image_data }}"
+                  style="max-width:220px;border:1px solid #d9e0e8;border-radius:8px;padding:4px;background:#fff;margin-top:6px;"
+                >
+              {% else %}
+                <div class="muted" style="margin-top:6px;">QR se nepodařilo vygenerovat.</div>
+              {% endif %}
             {% else %}
               <div class="muted" style="margin-top:6px;">Není evidována otevřená platba.</div>
             {% endif %}

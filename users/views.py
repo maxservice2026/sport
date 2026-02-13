@@ -1,8 +1,11 @@
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+import base64
+import io
 import imaplib
 import smtplib
 import ssl
+import unicodedata
 
 from django.contrib import messages
 from django.contrib.auth import login, logout
@@ -37,6 +40,11 @@ DAY_TO_WEEKDAY = {
     'So': 5,
     'Ne': 6,
 }
+
+PAYMENT_ACCOUNT_DISPLAY = '290625104 / 0300'
+PAYMENT_ACCOUNT_IBAN = 'CZ9603000000000290625104'
+PAYMENT_ACCOUNT_BIC = 'CEKOCZPP'
+PAYMENT_ACCOUNT_RECIPIENT = 'SK SPB Z. S.'
 
 
 class UserPasswordResetView(PasswordResetView):
@@ -86,6 +94,57 @@ def _period_range(period, today=None):
 
 def _round_czk(value):
     return Decimal(value or 0).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+
+
+def _clean_spd_text(value, fallback='Platba', max_len=60):
+    raw = str(value or '').strip()
+    if not raw:
+        raw = fallback
+    normalized = unicodedata.normalize('NFKD', raw)
+    ascii_text = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    ascii_text = ascii_text.replace('*', ' ').replace('\n', ' ').replace('\r', ' ')
+    ascii_text = ' '.join(ascii_text.split())
+    if not ascii_text:
+        ascii_text = fallback
+    return ascii_text[:max_len]
+
+
+def _build_spd_payload(*, amount_czk, variable_symbol, message):
+    try:
+        amount = Decimal(amount_czk or 0).quantize(Decimal('0.01'))
+    except (InvalidOperation, TypeError, ValueError):
+        amount = Decimal('0.00')
+    vs = ''.join(ch for ch in str(variable_symbol or '') if ch.isdigit()) or '0'
+    msg = _clean_spd_text(message, fallback='Platba')
+    recipient = _clean_spd_text(PAYMENT_ACCOUNT_RECIPIENT, fallback='SK SPB', max_len=35)
+    return (
+        f"SPD*1.0*ACC:{PAYMENT_ACCOUNT_IBAN}"
+        f"*CC:CZK*AM:{amount:.2f}"
+        f"*X-VS:{vs}"
+        f"*MSG:{msg}"
+        f"*RN:{recipient}"
+        f"*BIC:{PAYMENT_ACCOUNT_BIC}"
+    )
+
+
+def _build_qr_data_uri(spd_payload):
+    try:
+        import qrcode
+    except Exception:
+        return None
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=4,
+    )
+    qr.add_data(spd_payload)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color='black', back_color='white')
+    buff = io.BytesIO()
+    image.save(buff, format='PNG')
+    encoded = base64.b64encode(buff.getvalue()).decode('ascii')
+    return f"data:image/png;base64,{encoded}"
 
 
 def _next_recurrence_date(current_date, recurrence):
@@ -943,6 +1002,16 @@ def parent_dashboard(request):
         child.active_memberships = [m for m in child.memberships.all() if m.active]
         child.ended_memberships = [m for m in child.memberships.all() if not m.active]
         child.due_total = due_totals_map.get(child.id, Decimal('0.00'))
+        if child.due_total > 0:
+            child.qr_payload = _build_spd_payload(
+                amount_czk=child.due_total,
+                variable_symbol=child.variable_symbol,
+                message='Souhrn clenske platby',
+            )
+            child.qr_image_data = _build_qr_data_uri(child.qr_payload)
+        else:
+            child.qr_payload = ''
+            child.qr_image_data = None
 
     proforma_documents = list(
         ChildFinanceEntry.objects
@@ -958,6 +1027,7 @@ def parent_dashboard(request):
         'children': children,
         'proforma_documents': proforma_documents,
         'documents': ClubDocument.objects.order_by('-uploaded_at', '-id')[:30],
+        'payment_account_display': PAYMENT_ACCOUNT_DISPLAY,
     })
 
 
@@ -1067,6 +1137,12 @@ def parent_child_detail(request, child_id):
             qr_amount = Decimal(qr_amount)
         except (TypeError, InvalidOperation):
             qr_amount = Decimal('0.00')
+    qr_payload = _build_spd_payload(
+        amount_czk=qr_amount,
+        variable_symbol=child.variable_symbol,
+        message=qr_message or 'Platba',
+    ) if qr_amount > 0 else ''
+    qr_image_data = _build_qr_data_uri(qr_payload) if qr_payload else None
 
     return render(request, 'parent/child_detail.html', {
         'child': child,
@@ -1079,8 +1155,11 @@ def parent_child_detail(request, child_id):
         'qr_amount': qr_amount,
         'qr_title': qr_title,
         'qr_message': qr_message,
+        'qr_payload': qr_payload,
+        'qr_image_data': qr_image_data,
         'selected_entry': selected_entry,
         'documents': ClubDocument.objects.order_by('-uploaded_at', '-id')[:30],
+        'payment_account_display': PAYMENT_ACCOUNT_DISPLAY,
     })
 
 
@@ -1130,7 +1209,16 @@ def parent_proforma_detail(request, entry_id):
         and entry.status == ChildFinanceEntry.STATUS_OPEN
         and entry.amount_czk > 0
     ) else Decimal('0.00')
+    qr_payload = _build_spd_payload(
+        amount_czk=qr_amount,
+        variable_symbol=entry.variable_symbol,
+        message='Clenstvi',
+    ) if qr_amount > 0 else ''
+    qr_image_data = _build_qr_data_uri(qr_payload) if qr_payload else None
     return render(request, 'parent/proforma_detail.html', {
         'entry': entry,
         'qr_amount': qr_amount,
+        'qr_payload': qr_payload,
+        'qr_image_data': qr_image_data,
+        'payment_account_display': PAYMENT_ACCOUNT_DISPLAY,
     })
