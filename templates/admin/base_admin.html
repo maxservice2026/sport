@@ -73,10 +73,8 @@
   {% if not admin_hide_top_nav %}
     <nav class="quick-mini-actions" aria-label="Rychlá navigace administrace">
       <a class="btn" href="{% url 'admin_dashboard' %}">Přehled</a>
-      <a class="btn" href="{% url 'admin_group_create' %}">+ Nová skupina</a>
       <a class="btn" href="/registrace/">+ Registrace</a>
       <a class="btn" href="{% url 'admin_trainers' %}">Trenéři</a>
-      <a class="btn" href="{% url 'admin_trainer_create' %}">+ Nový trenér</a>
       <a class="btn" href="{% url 'admin_groups' %}">Skupiny</a>
       <a class="btn" href="{% url 'admin_attendance' %}">Docházka</a>
       <a class="btn" href="{% url 'admin_children' %}">Seznam členů</a>
