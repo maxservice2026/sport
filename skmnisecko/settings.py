@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'tenants',
     'users',
     'clubs',
     'attendance',
@@ -38,6 +39,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'tenants.middleware.TenantMiddleware',
     'skmnisecko.middleware.MobilePreviewMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -75,8 +77,10 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 if DATABASE_URL:
     try:
         import dj_database_url
+        # Render typicky vyzaduje SSL k DB; na vlastnim VPS je casto Postgres bez SSL.
+        DB_SSL_REQUIRE = os.getenv('DJANGO_DB_SSL_REQUIRE', '1') == '1'
         DATABASES = {
-            'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=True)
+            'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=DB_SSL_REQUIRE)
         }
     except Exception:
         if os.getenv('POSTGRES_DB'):
@@ -128,7 +132,7 @@ TIME_ZONE = 'Europe/Prague'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 if HAS_WHITENOISE:

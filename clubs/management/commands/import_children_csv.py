@@ -8,6 +8,8 @@ from django.db import transaction
 
 from clubs.models import Child, Group, Membership, Sport
 from users.models import User
+from tenants.models import Tenant
+from tenants.threadlocal import set_current_tenant, clear_current_tenant
 
 
 class Command(BaseCommand):
@@ -76,6 +78,8 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        tenant, _ = Tenant.objects.get_or_create(slug='default', defaults={'name': 'Hlavní tenant', 'active': True})
+        set_current_tenant(tenant)
         csv_path = Path(options["csv_path"]).expanduser()
         if not csv_path.exists():
             raise CommandError(f"Soubor neexistuje: {csv_path}")

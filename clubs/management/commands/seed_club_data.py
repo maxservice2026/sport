@@ -7,6 +7,8 @@ from django.db import transaction
 
 from clubs.models import AttendanceOption, Child, Group, Membership, Sport, TrainerGroup
 from users.models import User
+from tenants.models import Tenant
+from tenants.threadlocal import set_current_tenant
 
 
 class Command(BaseCommand):
@@ -120,6 +122,8 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        tenant, _ = Tenant.objects.get_or_create(slug='default', defaults={'name': 'Hlavní tenant', 'active': True})
+        set_current_tenant(tenant)
         rng = random.Random(42)
         start_date = date(2026, 2, 1)
         end_date = date(2026, 6, 30)

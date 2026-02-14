@@ -4,6 +4,7 @@ from django.shortcuts import redirect
 from functools import wraps
 
 from .models import AppSettings
+from tenants.threadlocal import get_current_tenant
 
 
 def role_required(*roles):
@@ -20,7 +21,13 @@ def role_required(*roles):
 
 
 def get_app_settings():
-    settings_obj = AppSettings.objects.order_by('id').first()
+    tenant = get_current_tenant()
+    qs = AppSettings.objects.order_by('id')
+    if tenant:
+        qs = qs.filter(tenant=tenant)
+    settings_obj = qs.first()
     if settings_obj:
         return settings_obj
+    if tenant:
+        return AppSettings.objects.create(tenant=tenant)
     return AppSettings.objects.create()

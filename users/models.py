@@ -2,11 +2,29 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from .managers import UserManager
 from django.utils import timezone
+from tenants.scoping import TenantScopedManager
 
 
 class User(AbstractUser):
-    username = None
-    email = models.EmailField(unique=True, verbose_name='Email')
+    # Synthetic username = "<tenant_slug>:<email>". Keeps Django auth happy (USERNAME_FIELD must be unique)
+    # while allowing same email in different tenants.
+    username = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='Uživatelské jméno',
+    )
+    tenant = models.ForeignKey(
+        'tenants.Tenant',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='users',
+        verbose_name='Tenant',
+    )
+    email = models.EmailField(unique=False, verbose_name='Email')
 
     ROLE_ADMIN = 'admin'
     ROLE_TRAINER = 'trainer'
@@ -42,14 +60,31 @@ class User(AbstractUser):
     class Meta:
         verbose_name = 'Uživatel'
         verbose_name_plural = 'Uživatelé'
+        constraints = [
+            models.UniqueConstraint(fields=['tenant', 'email'], name='users_user_tenant_email_uniq'),
+        ]
 
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = []
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = ['email']
 
     objects = UserManager()
+    all_objects = models.Manager()
 
     def __str__(self):
         return f"{self.email} ({self.get_role_display()})"
+
+    @staticmethod
+    def build_username(tenant_slug: str, email: str) -> str:
+        return f"{(tenant_slug or 'default').strip().lower()}:{(email or '').strip().lower()}"
+
+    def save(self, *args, **kwargs):
+        if not self.tenant_id:
+            from tenants.threadlocal import get_current_tenant
+
+            self.tenant = get_current_tenant()
+        if self.tenant and self.email:
+            self.username = self.build_username(self.tenant.slug, self.email)
+        super().save(*args, **kwargs)
 
 
 class EconomyExpense(models.Model):
@@ -63,6 +98,14 @@ class EconomyExpense(models.Model):
     ]
 
     expense_date = models.DateField(default=timezone.now, verbose_name='Datum')
+    tenant = models.ForeignKey(
+        'tenants.Tenant',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='economy_expenses',
+        verbose_name='Tenant',
+    )
     title = models.CharField(max_length=160, verbose_name='Název nákladu')
     amount_czk = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Částka (Kč)')
     expense_type = models.CharField(
@@ -104,8 +147,18 @@ class EconomyExpense(models.Model):
         verbose_name_plural = 'Náklady'
         ordering = ('-expense_date', '-id')
 
+    objects = TenantScopedManager('tenant')
+    all_objects = models.Manager()
+
     def __str__(self):
         return f"{self.expense_date:%d.%m.%Y} - {self.title} ({self.amount_czk} Kč)"
+
+    def save(self, *args, **kwargs):
+        if not self.tenant_id:
+            from tenants.threadlocal import get_current_tenant
+
+            self.tenant = get_current_tenant()
+        super().save(*args, **kwargs)
 
 
 class EconomyRecurringExpense(models.Model):
@@ -123,6 +176,14 @@ class EconomyRecurringExpense(models.Model):
     ]
 
     title = models.CharField(max_length=160, verbose_name='Název nákladu')
+    tenant = models.ForeignKey(
+        'tenants.Tenant',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='economy_recurring_expenses',
+        verbose_name='Tenant',
+    )
     amount_czk = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Částka (Kč)')
     note = models.CharField(max_length=255, blank=True, verbose_name='Poznámka')
     recurrence = models.CharField(max_length=20, choices=RECUR_CHOICES, verbose_name='Opakování')
@@ -144,8 +205,18 @@ class EconomyRecurringExpense(models.Model):
         verbose_name_plural = 'Opakované náklady'
         ordering = ('title', 'id')
 
+    objects = TenantScopedManager('tenant')
+    all_objects = models.Manager()
+
     def __str__(self):
         return f"{self.title} ({self.get_recurrence_display()})"
+
+    def save(self, *args, **kwargs):
+        if not self.tenant_id:
+            from tenants.threadlocal import get_current_tenant
+
+            self.tenant = get_current_tenant()
+        super().save(*args, **kwargs)
 
 
 class AppSettings(models.Model):
@@ -156,6 +227,14 @@ class AppSettings(models.Model):
         (PAYMENT_EMAIL_FORWARD, 'Přesměrování na klubový email'),
     ]
 
+    tenant = models.OneToOneField(
+        'tenants.Tenant',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='app_settings',
+        verbose_name='Tenant',
+    )
     primary_color = models.CharField(max_length=20, default='#1e5f8f', verbose_name='Primární barva')
     secondary_color = models.CharField(max_length=20, default='#5f6570', verbose_name='Sekundární barva')
     accent_color = models.CharField(max_length=20, default='#c62828', verbose_name='Akcent / varování')
@@ -205,5 +284,15 @@ class AppSettings(models.Model):
         verbose_name = 'Nastavení aplikace'
         verbose_name_plural = 'Nastavení aplikace'
 
+    objects = TenantScopedManager('tenant')
+    all_objects = models.Manager()
+
     def __str__(self):
-        return 'Nastavení aplikace'
+        return f"Nastavení aplikace ({self.tenant.slug if self.tenant else 'bez tenant'})"
+
+    def save(self, *args, **kwargs):
+        if not self.tenant_id:
+            from tenants.threadlocal import get_current_tenant
+
+            self.tenant = get_current_tenant()
+        super().save(*args, **kwargs)

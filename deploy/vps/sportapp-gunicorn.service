@@ -1,0 +1,22 @@
+[Unit]
+Description=Sportapp (Gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=sportapp
+Group=www-data
+WorkingDirectory=/srv/sportapp/app
+EnvironmentFile=/etc/sportapp/sportapp.env
+
+# /run je tmpfs; systemd to vytvori pri startu.
+RuntimeDirectory=sportapp
+RuntimeDirectoryMode=0755
+
+ExecStart=/srv/sportapp/venv/bin/gunicorn skmnisecko.wsgi:application --bind unix:/run/sportapp/gunicorn.sock --workers $GUNICORN_WORKERS --timeout $GUNICORN_TIMEOUT --access-logfile - --error-logfile -
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+

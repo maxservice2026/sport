@@ -8,6 +8,14 @@ from .models import User, AppSettings
 class EmailAuthenticationForm(AuthenticationForm):
     username = forms.EmailField(label='Email', widget=forms.EmailInput(attrs={'autofocus': True}))
 
+    def clean(self):
+        # AuthenticationForm předává "username" do authenticate().
+        # My ale používáme syntetické username "<tenant>:<email>", aby email mohl existovat ve více tenantech.
+        email = (self.cleaned_data.get('username') or '').strip()
+        tenant = getattr(self.request, 'tenant', None)
+        self.cleaned_data['username'] = User.build_username(tenant.slug if tenant else 'default', email)
+        return super().clean()
+
 
 class SilentPasswordResetForm(PasswordResetForm):
     def save(self, *args, **kwargs):

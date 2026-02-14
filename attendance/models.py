@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.conf import settings
 from clubs.models import Group, Child
+from tenants.scoping import TenantScopedManager
 
 
 class TrainingSession(models.Model):
@@ -19,6 +20,9 @@ class TrainingSession(models.Model):
     def __str__(self):
         return f"{self.group} - {self.date}"
 
+    objects = TenantScopedManager('group__tenant')
+    all_objects = models.Manager()
+
 
 class Attendance(models.Model):
     session = models.ForeignKey(TrainingSession, on_delete=models.CASCADE, related_name='attendance_records', verbose_name='Tréninkový den')
@@ -33,6 +37,9 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.child} - {self.session.date}: {'Přítomen' if self.present else 'Nepřítomen'}"
+
+    objects = TenantScopedManager('session__group__tenant')
+    all_objects = models.Manager()
 
 
 class TrainerAttendance(models.Model):
@@ -55,3 +62,6 @@ class TrainerAttendance(models.Model):
 
     def __str__(self):
         return f"{self.trainer} - {self.session.date}: {'Přítomen' if self.present else 'Nepřítomen'}"
+
+    objects = TenantScopedManager('session__group__tenant')
+    all_objects = models.Manager()

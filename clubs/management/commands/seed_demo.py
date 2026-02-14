@@ -5,12 +5,16 @@ from django.utils import timezone
 from users.models import User
 from clubs.models import Sport, Group, AttendanceOption, Child, Membership, TrainerGroup
 from attendance.models import TrainingSession, Attendance
+from tenants.models import Tenant
+from tenants.threadlocal import set_current_tenant
 
 
 class Command(BaseCommand):
     help = 'Vytvoří demo data (admin, trenér, rodič, skupina, děti).'
 
     def handle(self, *args, **options):
+        tenant, _ = Tenant.objects.get_or_create(slug='default', defaults={'name': 'Hlavní tenant', 'active': True})
+        set_current_tenant(tenant)
         with transaction.atomic():
             sport, _ = Sport.objects.get_or_create(name='Atletika')
 
