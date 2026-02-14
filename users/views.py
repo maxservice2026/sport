@@ -21,6 +21,7 @@ from .forms import (
     TrainerCreateForm,
     TrainerUpdateForm,
     AppSettingsForm,
+    AppNotificationsForm,
 )
 from .utils import role_required, get_app_settings
 from clubs.models import Group, Sport, Child, Membership, TrainerGroup, SaleCharge, ReceivedPayment, ChildFinanceEntry, ClubDocument
@@ -763,6 +764,21 @@ def admin_settings(request):
                 messages.success(request, 'Nastavení aplikace bylo uloženo.')
                 return redirect('admin_settings')
     return render(request, 'admin/settings.html', {
+        'form': form,
+        'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
+        'admin_wide_content': True,
+    })
+
+
+@role_required('admin')
+def admin_notifications(request):
+    settings_obj = get_app_settings()
+    form = AppNotificationsForm(request.POST or None, instance=settings_obj)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Notifikace byly uloženy.')
+        return redirect('admin_notifications')
+    return render(request, 'admin/notifications.html', {
         'form': form,
         'groups_nav': Group.objects.select_related('sport').order_by('sport__name', 'name'),
         'admin_wide_content': True,

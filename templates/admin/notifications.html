@@ -1,0 +1,50 @@
+{% extends 'admin/base_admin.html' %}
+
+{% block admin_content %}
+<section class="page-hero">
+  <h2>Notifikace</h2>
+  <p>Nastavení e-mailových (a v budoucnu SMS) šablon.</p>
+</section>
+
+<section class="page-panel">
+  <form method="post">
+    {% csrf_token %}
+
+    <h3>E-mail šablony</h3>
+
+    <div class="form-row">
+      <strong>SK MNÍŠECKO - potvrzujeme přijetí registrace</strong>
+    </div>
+    <div class="form-row">
+      <label>{{ form.registration_confirmation_subject.label }}</label>
+      {{ form.registration_confirmation_subject }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.registration_confirmation_body.label }}</label>
+      {{ form.registration_confirmation_body }}
+    </div>
+
+    <div class="form-row" style="margin-top:10px;">
+      <strong>SK MNÍŠECKO - Vítejte v SK Mníšecko</strong>
+    </div>
+    <div class="form-row">
+      <label>{{ form.welcome_subject.label }}</label>
+      {{ form.welcome_subject }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.welcome_body.label }}</label>
+      {{ form.welcome_body }}
+    </div>
+
+    <h3 style="margin-top:14px;">SMS šablony (připravujeme)</h3>
+    <div class="form-row">
+      <em>SMS notifikace zatím nejsou implementované.</em>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn" type="submit">Uložit notifikace</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
+

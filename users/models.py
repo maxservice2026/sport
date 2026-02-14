@@ -165,12 +165,21 @@ class AppSettings(models.Model):
     consent_health_text = models.TextField(blank=True, verbose_name='Prohlášení o zdravotním stavu')
     registration_confirmation_subject = models.CharField(
         max_length=200,
-        default='Potvrzujeme přijetí registrace',
+        default='SK MNÍŠECKO - potvrzujeme přijetí registrace',
         verbose_name='Potvrzení přijetí registrace - předmět',
     )
     registration_confirmation_body = models.TextField(
         default='Dobrý den, děkujeme za zaslání registrace. Tým SK Mníšecko.',
         verbose_name='Potvrzení přijetí registrace - text',
+    )
+    welcome_subject = models.CharField(
+        max_length=200,
+        default='SK MNÍŠECKO - Vítejte v SK Mníšecko',
+        verbose_name='Vítejte - předmět',
+    )
+    welcome_body = models.TextField(
+        default='Dobrý den, vítejte v SK Mníšecko.',
+        verbose_name='Vítejte - text',
     )
 
     payment_email_mode = models.CharField(

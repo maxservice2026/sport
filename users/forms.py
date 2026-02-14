@@ -131,8 +131,6 @@ class AppSettingsForm(forms.ModelForm):
             'consent_vop_text',
             'consent_gdpr_text',
             'consent_health_text',
-            'registration_confirmation_subject',
-            'registration_confirmation_body',
             'payment_email_mode',
             'payment_imap_host',
             'payment_imap_port',
@@ -151,7 +149,21 @@ class AppSettingsForm(forms.ModelForm):
             'consent_vop_text': forms.Textarea(attrs={'rows': 3}),
             'consent_gdpr_text': forms.Textarea(attrs={'rows': 3}),
             'consent_health_text': forms.Textarea(attrs={'rows': 3}),
-            'registration_confirmation_body': forms.Textarea(attrs={'rows': 3}),
             'payment_imap_password': forms.PasswordInput(render_value=True),
             'payment_smtp_password': forms.PasswordInput(render_value=True),
+        }
+
+
+class AppNotificationsForm(forms.ModelForm):
+    class Meta:
+        model = AppSettings
+        fields = [
+            'registration_confirmation_subject',
+            'registration_confirmation_body',
+            'welcome_subject',
+            'welcome_body',
+        ]
+        widgets = {
+            'registration_confirmation_body': forms.Textarea(attrs={'rows': 4}),
+            'welcome_body': forms.Textarea(attrs={'rows': 4}),
         }

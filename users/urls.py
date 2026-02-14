@@ -9,6 +9,7 @@ urlpatterns = [
     path('admin/trainers/<int:user_id>/', views.admin_trainer_edit, name='admin_trainer_edit'),
     path('admin/economics/', views.admin_economics, name='admin_economics'),
     path('admin/settings/', views.admin_settings, name='admin_settings'),
+    path('admin/notifications/', views.admin_notifications, name='admin_notifications'),
     path('trainer/', views.trainer_dashboard, name='trainer_dashboard'),
     path('trainer/economics/', views.trainer_economics, name='trainer_economics'),
     path('reset-hesla/', views.UserPasswordResetView.as_view(), name='password_reset'),

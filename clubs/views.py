@@ -72,7 +72,7 @@ def _send_registration_confirmation_email(target_email):
         return False
 
     settings_obj = get_app_settings()
-    subject = (settings_obj.registration_confirmation_subject or '').strip() or 'Potvrzujeme přijetí registrace'
+    subject = (settings_obj.registration_confirmation_subject or '').strip() or 'SK MNÍŠECKO - potvrzujeme přijetí registrace'
     body = (settings_obj.registration_confirmation_body or '').strip() or 'Dobrý den, děkujeme za zaslání registrace. Tým SK Mníšecko.'
 
     smtp_host = (settings_obj.payment_smtp_host or '').strip()

@@ -7,6 +7,9 @@
 </section>
 
 <section class="page-panel">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+    <a class="btn secondary" href="{% url 'admin_notifications' %}">Notifikace</a>
+  </div>
   <form method="post">
     {% csrf_token %}
 
@@ -38,19 +41,6 @@
     <div class="form-row">
       <label>{{ form.consent_health_text.label }}</label>
       {{ form.consent_health_text }}
-    </div>
-
-    <h3 style="margin-top:14px;">E-mail šablony</h3>
-    <div class="form-row">
-      <strong>Potvrzení přijetí registrace</strong>
-    </div>
-    <div class="form-row">
-      <label>{{ form.registration_confirmation_subject.label }}</label>
-      {{ form.registration_confirmation_subject }}
-    </div>
-    <div class="form-row">
-      <label>{{ form.registration_confirmation_body.label }}</label>
-      {{ form.registration_confirmation_body }}
     </div>
 
     <h3 style="margin-top:14px;">E-mail platby</h3>
